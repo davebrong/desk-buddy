@@ -1,0 +1,230 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lump Gag Sounds</title>
+<!-- Review page for tools/make_gag_sounds.py: plays each tap gag (drawn by lump.html, loaded hidden
+     alongside) in step with its rendered WAV. Needs lump.html and gags/tap_*.wav next to it. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #090C12; --surface: #11161F; --surface-2: #171E2B; --line: #222B3B;
+  --fg: #E7ECF4; --muted: #8C97AB; --accent: #FFB547; --accent-ink: #1A1206; --peri: #9AA8FF;
+  --font-display: "Fredoka", "Avenir Next Rounded", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 40px 16px 64px; display: flex; flex-direction: column; gap: 26px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(32px, 6vw, 48px); line-height: 1.05; margin: 6px 0 10px; }
+.lede { margin: 0; color: var(--muted); max-width: 72ch; font-size: 16px; }
+.lede strong { color: var(--fg); font-weight: 500; }
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); }
+.btn { all: unset; cursor: pointer; font-family: var(--font-mono); font-size: 13px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; color: var(--fg); background: var(--surface-2); }
+.btn:hover { border-color: var(--peri); }
+.btn:focus-visible, .play:focus-visible, textarea:focus-visible, canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--peri); color: #0B1020; border-color: var(--peri); font-weight: 500; }
+.status { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.card.playing { border-color: var(--accent); }
+.stage { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: #000; cursor: pointer; }
+.stage canvas { width: 100%; height: 100%; display: block; }
+.play { all: unset; position: absolute; inset: auto 10px 10px auto; width: 44px; height: 44px; border-radius: 50%; background: var(--peri); display: grid; place-items: center; cursor: pointer; }
+.play svg { width: 16px; height: 16px; fill: #0B1020; }
+.card.playing .play { background: var(--accent); }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.head h2 { font-family: var(--font-display); font-weight: 600; font-size: 21px; margin: 0; }
+.len { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.desc { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.45; }
+.wave { width: 100%; height: 88px; display: block; background: var(--surface-2); border-radius: 8px; cursor: pointer; }
+textarea { width: 100%; min-height: 54px; resize: vertical; background: var(--surface-2); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font: 14px/1.4 var(--font-body); }
+textarea::placeholder { color: #5D6880; }
+iframe.hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; }
+.err { color: #FF8A8A; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Lump · tap gags</div>
+    <h1>Gag sounds</h1>
+    <p class="lede">A sound for every gag he plays when you tap the glass. Press play and the drawings run <strong>in step with the sound</strong>, exactly as they're baked for the device. Click anywhere on a waveform to jump to that moment; the marks show what's happening when. Jot anything to change in the box under each one, then <strong>Copy notes</strong> and paste them back to me.</p>
+  </header>
+  <div class="bar">
+    <button type="button" class="btn primary" id="all">Play all in a row</button>
+    <button type="button" class="btn" id="stop">Stop</button>
+    <button type="button" class="btn" id="speed">Speed: 1×</button>
+    <button type="button" class="btn" id="copy">Copy notes</button>
+    <span class="status" id="status" role="status">Loading Lump…</span>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+<iframe class="hidden" id="lump" src="lump.html" title="Lump's drawings (hidden)" aria-hidden="true" tabindex="-1"></iframe>
+
+<script>
+(() => {
+const GAGS = [
+  ['moon', 'Mooning', 'A cheeky “heh-heh-heh”, a swish as he turns round, a slide-whistle “wee-woo” for every bum wiggle, a zip as he spins back, then a twinkly wink with a little tongue click and a playful “heh~”.'],
+  ['bomb', 'Cartoon bomb', 'Sneaky plucked bass notes while his eyes shift, “hehehe”, a whump as the coat flies open and “ta-daa!”. The fuse hisses and the timer tick-tocks with a beep on 3, 2, 1 (“hm?”… “uh-oh”), then KABOOM. Smoke, a sooty cough, blink-blink, a soot-shaking “brrr”, boing, “heh”.'],
+  ['prep', 'Meeting prep', 'During the countdown. “Eep!”, a gasp at the time, a poof and sparkle as the tie appears, frantic swishes and nervous “mm-mm-mm” doing it up, a “shlp” lick, four comb strokes, a glint and a smug “hmm-HM”… then a big BOING as the cowlick springs back, and a sigh.'],
+  ['prep_alarm', 'Meeting prep (alarm)', 'When the meeting alarm itself goes off: an old alarm clock rattling away with a panicked “aaah!”, then the same tie, lick, comb, smug and BOING as the countdown version.'],
+  ['startle', 'Late-night startle', 'Night only, so it’s quieter than the rest. Two soft snores (rattle in, whistle out), a “snrk-HUH?!” as he bolts up with the blanket flying and the drool snapping, sleepy “hm?… hm..”, mouth wipes, a sheepish “heh”, a big yawn, the blanket pulled back up, a flump, and a contented “mm” as he drops off.'],
+  ['shock', 'Electric shock', 'A curious “hm?”, then a crackly electric buzz while he yelps with a juddering wobble. A dazed droop as the static fizzles out, a lip-trill shake-off and a little “heh”.'],
+  ['moto', 'Ring of fire', '“Ooh!”, a cartoon zip as he dashes off, two revs off-screen, then a little moped rides in with a “wheee!”, a fire whoosh through the ring, a bump on landing, a singed sizzle, a cough and a “ta-da!”.'],
+  ['wolf', 'Wolf howl', 'A spooky little theremin as the moon rises, “oh!”, four fluffy fwips as the fur sprouts, a small “grr”, a breath in, then a long wobbly ocarina “a-wooooo”. Poof, and a sheepish “heh”.'],
+  ['glass', 'Face on the glass', 'Pitter-patter run-up, a SPLAT on the glass, a muffled “mmph”, a long squeak as he slides down, a bloop as he pops back up, “hehe”, a swishy scrub in little circles with a polish-squeak on each one, a glint, a “ting-ting!” and a proud little “hm-hm!”.'],
+  ['banana', 'Banana peel', 'A falling whistle as the peel drops, a flop, three steps, a slippery “zwip!” and “whoa!”, a big THUD, the peel landing on his head, tweeting birds, a grumpy “hmph” and a whoosh as he flings it.'],
+  ['balloon', 'Balloon', 'Two rubbery “fwoo” breaths as he blows up, straining creaks and a muffled “mmmMM”, a lippy “pfft!” as he lets the air out of his mouth, a wobbly, sagging squeal with air rushing out for the whole flight, a last puff and two bloops as he puffs back.'],
+  ['sneeze', 'Sneeze', 'Three gasping breaths in, each higher (“ah… ahh… AHHH”), two little catches and a held breath, then a real “tch-CHOO!”: a hard burst, a breathy falling “oo” and the spray hissing out. Zoom off, a distant bonk, footsteps back, a sheepish “heh…” and a sniff-sniff.'],
+  ['accordion', 'Accordion', 'A squish, then a little oom-pah phrase on accordion reeds, one note per squeeze, with the bellows breathing. A boing as he springs back, “heh”.'],
+  ['anvil', 'Anvil', 'A falling whistle, “eep!”, a big ringing CLANG, twinkly stars while he’s flat, a boing as the anvil bounces off, a shake-off and a little “hm”.'],
+  ['disco', 'Disco', 'A proper little disco song at one steady tempo (111 bpm): twinkles and a cymbal swell as the ball comes down, “ooh!”, a glint for the shades, a snare pickup, then four-on-the-floor with octave bass, open hats, chord chops and strings, and Lump singing a “doo-doo-dooo” hook. Everything hits together on the pose with a “woo!”, then twinkles as the ball goes up.'],
+];
+const FPS = 24, NOTES_KEY = 'lump-gag-sound-notes-v1', SPEEDS = [1, 0.5, 0.25];
+const $ = id => document.getElementById(id);
+const status = $('status');
+let ctx = null, speedI = 0, L = null, cues = {}, notes = {}, current = null, allRun = 0;
+try { notes = JSON.parse(localStorage.getItem(NOTES_KEY) || '{}'); } catch (e) {}
+const saveNotes = () => { try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); } catch (e) {} };
+const audio = () => (ctx ||= new (window.AudioContext || window.webkitAudioContext)());
+
+const PLAY = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5z"/></svg>';
+const STOP = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg>';
+
+const cards = GAGS.map(([g, title, desc]) => {
+  const el = document.createElement('article'); el.className = 'card';
+  el.innerHTML = `<div class="stage"><canvas width="240" height="240" role="img" aria-label="Lump: ${title}"></canvas>
+      <button type="button" class="play" aria-label="Play ${title}">${PLAY}</button></div>
+    <div class="head"><h2>${title}</h2><span class="len"></span></div>
+    <p class="desc">${desc}</p>
+    <canvas class="wave" tabindex="0" aria-label="${title} waveform: click to play from a moment"></canvas>
+    <textarea placeholder="Notes for this one (too loud, wrong moment, different noise…)" aria-label="Notes on ${title}"></textarea>`;
+  $('grid').appendChild(el);
+  const st = { g, title, el, c: el.querySelector('.stage canvas').getContext('2d'), wave: el.querySelector('.wave'),
+               btn: el.querySelector('.play'), len: el.querySelector('.len'), ticks: [], buf: null, src: null, t0: 0, rate: 1, lastTick: -1, total: 1 };
+  const ta = el.querySelector('textarea'); ta.value = notes[g] || '';
+  ta.addEventListener('input', () => { notes[g] = ta.value; saveNotes(); });
+  const toggle = () => (st.src ? stop(st) : play(st, 0));
+  st.btn.addEventListener('click', e => { e.stopPropagation(); toggle(); });
+  el.querySelector('.stage').addEventListener('click', toggle);
+  st.wave.addEventListener('click', e => { const r = st.wave.getBoundingClientRect(); play(st, (e.clientX - r.left) / r.width * st.total); });
+  st.wave.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  return st;
+});
+
+function stop(st) {
+  if (!st.src) return;
+  const s = st.src; st.src = null; s.onended = null; try { s.stop(); } catch (e) {}
+  st.el.classList.remove('playing'); st.btn.innerHTML = PLAY; st.btn.setAttribute('aria-label', `Play ${st.title}`);
+  if (current === st) current = null;
+  draw(st, 0); drawWave(st, null);
+  if (st.done) { const d = st.done; st.done = null; d(); }
+}
+function play(st, from) {
+  if (!st.buf) return Promise.resolve();
+  if (current && current !== st) stop(current);
+  stop(st);
+  const ac = audio(), token = {};
+  const src = ac.createBufferSource(); src.buffer = st.buf; st.rate = SPEEDS[speedI]; src.playbackRate.value = st.rate;
+  src.connect(ac.destination);
+  st.src = src; st.token = token; current = st; st.lastTick = -1; st.t0 = Infinity;   // nothing moves until the audio clock is running
+  st.el.classList.add('playing'); st.btn.innerHTML = STOP; st.btn.setAttribute('aria-label', `Stop ${st.title}`);
+  // A sleeping audio clock jumps forward when it wakes, so only read the time once it's running.
+  (ac.state === 'running' ? Promise.resolve() : ac.resume()).then(() => {
+    if (st.token !== token || st.src !== src) return;
+    const at = ac.currentTime + 0.05;
+    if (from < st.buf.duration) src.start(at, Math.max(0, from));
+    st.t0 = at - from / st.rate;
+  });
+  return new Promise(res => { st.done = res; });
+}
+
+function draw(st, tick) {
+  const id = st.ticks[Math.min(tick, st.ticks.length - 1)];
+  if (id && L) { L.setTint(/^prep/.test(st.g) ? '#3D8BFF' : '#FF7A45'); L.render(st.c, L.fxFor(id), id, tick); }
+}
+function drawWave(st, t) {
+  const cv = st.wave, dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
+  if (!st.buf) return;
+  const top = 38, mid = top + (H - top) / 2, amp = (H - top) / 2 - 3, data = st.buf.getChannelData(0), per = st.buf.sampleRate * st.total / W;
+  c.fillStyle = '#5B6B8F';
+  for (let x = 0; x < W; x++) {
+    let mn = 0, mx = 0; const a = Math.floor(x * per), b = Math.min(data.length, Math.floor((x + 1) * per));
+    for (let i = a; i < b; i++) { const v = data[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+    const k = amp / 0.45; c.fillRect(x, mid - mx * k, 1, Math.max(1, (mx - mn) * k));
+  }
+  c.font = '10px "IBM Plex Mono", monospace'; c.textBaseline = 'top';
+  const rows = [-1e9, -1e9, -1e9];
+  for (const [tick, label] of (cues[st.g] || [])) {
+    const x = tick / FPS / st.total * W;
+    c.fillStyle = 'rgba(154,168,255,.45)'; c.fillRect(x, 12, 1, H - 12);
+    const w = c.measureText(label).width + 6; let r = rows.findIndex(e => e <= x); if (r < 0) r = rows.indexOf(Math.min(...rows));
+    rows[r] = x + w; c.fillStyle = '#C9D1FF'; c.fillText(label, Math.min(x + 2, W - w + 4), r * 12);
+  }
+  if (t !== null) { c.fillStyle = '#FFB547'; c.fillRect(Math.min(W - 2, t / st.total * W), 0, 2, H); }
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  const st = current; if (!st || !st.src) return;
+  const t = (ctx.currentTime - st.t0) * st.rate;
+  if (t >= st.total) { stop(st); return; }
+  const tick = Math.max(0, Math.floor(t * FPS));
+  if (tick !== st.lastTick) { st.lastTick = tick; draw(st, tick); }
+  drawWave(st, Math.max(0, t));
+}
+
+$('stop').addEventListener('click', () => { allRun++; if (current) stop(current); });
+$('speed').addEventListener('click', e => { speedI = (speedI + 1) % SPEEDS.length; e.target.textContent = `Speed: ${SPEEDS[speedI]}×`; });
+$('all').addEventListener('click', async () => {
+  const run = ++allRun;
+  for (const st of cards) {
+    if (run !== allRun) return;
+    st.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await play(st, 0);
+    if (run !== allRun) return;
+    await new Promise(r => setTimeout(r, 500));
+  }
+});
+$('copy').addEventListener('click', async () => {
+  const lines = cards.filter(st => (notes[st.g] || '').trim()).map(st => `- ${st.title}: ${notes[st.g].trim()}`);
+  const text = lines.length ? `Gag sound notes:\n${lines.join('\n')}` : 'Gag sounds: all good as they are.';
+  try { await navigator.clipboard.writeText(text); status.textContent = lines.length ? `Copied notes on ${lines.length} gag${lines.length > 1 ? 's' : ''}` : 'No notes yet: copied “all good”'; }
+  catch (e) { status.textContent = 'Couldn’t reach the clipboard: select the notes by hand'; }
+});
+window.addEventListener('resize', () => cards.forEach(st => drawWave(st, null)));
+
+async function start() {
+  const frame = $('lump');
+  for (let i = 0; i < 200 && !(frame.contentWindow && frame.contentWindow.__lump); i++) await new Promise(r => setTimeout(r, 50));
+  L = frame.contentWindow && frame.contentWindow.__lump;
+  if (!L) { status.innerHTML = '<span class="err">Couldn’t load lump.html next to this page.</span>'; return; }
+  const v = Date.now();
+  try { cues = await (await fetch(`gags/tap_cues.json?v=${v}`)).json(); } catch (e) {}
+  const ac = audio();
+  await Promise.all(cards.map(async st => {
+    // the gag's own drawings, without the way in and out: most from his idle mood ([in (3)] + gag + [out (4)]),
+    // the alarm version of prep from the meeting alarm ([in (2)] + gag + [out (2)]), and the night startle is a clip of its own
+    const src = { prep_alarm: ['tap_prep_meeting', 2, 2, 'N'], startle: ['tap_startle_night', 0, 0, 'NT1'] }[st.g] || [`tap_${st.g}_idle`, 3, 4, 'N'];
+    const seq = L.CLIPS[src[0]].seq;
+    for (const [id, n] of [...seq.slice(src[1], seq.length - src[2]), [src[3], 12]]) for (let k = 0; k < n; k++) st.ticks.push(id);
+    try {
+      st.buf = await ac.decodeAudioData(await (await fetch(`gags/tap_${st.g}.wav?v=${v}`)).arrayBuffer());
+    } catch (e) { st.len.innerHTML = '<span class="err">no sound file</span>'; }
+    st.total = Math.max(st.ticks.length / FPS, st.buf ? st.buf.duration : 0);
+    st.len.textContent = st.buf ? `${st.total.toFixed(1)}s` : st.len.textContent;
+    draw(st, 0); drawWave(st, null);
+  }));
+  status.textContent = 'Ready: press play on any gag';
+  requestAnimationFrame(loop);
+}
+start();
+window.__gagSounds = { cards, play, stop };
+})();
+</script>

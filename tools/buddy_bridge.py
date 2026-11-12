@@ -39,9 +39,10 @@ goes its own way after a minute and shows he's not connected. Session state is k
 
 Extras for debugging:  GET /status   POST /cmd  (body: a raw command such as "s done")
                        GET /sound    POST /sound (body: on | off | toggle | play <moment>)
+                       (play tap_<gag>_<mood> plays a gag's sound, e.g. play tap_shock_idle)
 Install as a login item with tools/install_bridge.sh.
 """
-import glob, http.server, json, logging, logging.handlers, os, random, re, subprocess, sys, threading, time
+import glob, http.server, json, logging, logging.handlers, os, random, re, subprocess, sys, threading, time, wave
 import serial
 
 HTTP_PORT = 47823
@@ -66,6 +67,13 @@ FORGET = 6 * 3600                       # drop sessions silent for this long
 OOPS_GAP = 20                           # at most one oops per this many seconds
 DEFAULT_COLOUR = "FF7A45"               # Tangerine
 TAP_SNOOZE = 120                        # tapping "needs you" holds off the nagging this long
+# Animations you can ask for from the computer (menu bar, hotkey, Shortcuts: POST /play <name>),
+# mapped to the board's event. "tap" is a random gag picked by the board, as when you tap the glass
+# (at night the startle, before a meeting the prep), but without a tap's meaning: nothing is snoozed
+# or silenced. A named gag plays in whatever mood he's in.
+GAGS = ("shock", "moto", "wolf", "accordion", "anvil", "disco", "glass", "banana", "balloon", "sneeze", "moon", "bomb")
+ANIMATIONS = {"tap": "tap", **{g: f"tap_{g}" for g in GAGS}, "startle": "tap_startle_night", "prep": "tap_prep",
+              **{e: e for e in ("fidget_toss", "fidget_twitch", "fidget_bubble", "oops", "hello")}}
 # Usage gauge: his colour warms from Tangerine to red as the busier of your 5-hour / weekly
 # Claude limits fills up (fed by the Claude Code status line, see tools/statusline.sh).
 USAGE_STOPS = [(0.0, "FF7A45"), (0.5, "FF7A45"), (0.8, "FF4B2B"), (0.97, "C8102E"), (1.0, "8F7C78")]
@@ -90,6 +98,11 @@ STILL_WAITING_AFTER = 45                # matches the board's alert -> waiting e
 LONG_JOB_AFTER = 10 * 60                # matches the board's working -> longhaul
 NIGHT_AWAKE = 15 * 60
 FIDGET_EVERY = (5 * 60, 15 * 60)
+# Gag sounds (tools/make_gag_sounds.py -> sounds/tap_<gag>.wav): the board prints "gag tap_<gag>_<mood>"
+# the moment a gag starts. Each sound is timed from the gag's first drawing, which comes GAG_LEAD after
+# that (his way in from the mood is padded to 12 frames at 24 fps); the night startle has no way in.
+GAG_LEAD = 0.5
+AFPLAY_LAG = 0.05                       # afplay takes a moment to start making sound
 # Heartbeat: "h <seconds since local midnight>" every HEARTBEAT_EVERY. If the board hears nothing
 # for a minute (bridge crashed, Mac asleep, USB power only) he goes his own way: idle and fidgeting,
 # asleep at night, with a little unplugged-cable mark. The heartbeat also tells him the time.
@@ -216,7 +229,7 @@ class Device:
                     # board rebooted, or it had given up on us (no heartbeat) and gone its own way
                     if "lump ready" in text or text == "resync":
                         self._call(self.on_ready)
-                    elif text == "tap" and self.on_line:
+                    elif (text == "tap" or text.startswith("gag ")) and self.on_line:
                         self._call(self.on_line, text)
                     elif text == "err pairing":
                         log.info("the board refused our pairing token: run tools/wifi_setup.py again")
@@ -443,6 +456,7 @@ class Sounds:
     def __init__(self):
         self.lock, self.cfg, self.mtime = threading.Lock(), {}, None
         self.last_any, self.last_at, self.last_pick, self.proc = 0.0, {}, {}, None
+        self.gag_until, self.gag_timer = 0.0, None             # a gag's sound is playing (or about to) until then
 
     def settings(self):
         try:
@@ -476,11 +490,12 @@ class Sounds:
             picks = m.get("pick") or []
             if not force:
                 if not cfg.get("enabled") or not m.get("on") or not picks:
-                    return False
-                if now - self.last_at.get(moment, 0) < SOUND_REPEAT:
-                    return False
-                if now - self.last_any < SOUND_GAP and moment not in URGENT_SOUNDS:
-                    return False
+                    return False                              # switched off: nothing worth logging
+                why = ("same sound %.0fs ago" % (now - self.last_at[moment]) if now - self.last_at.get(moment, 0) < SOUND_REPEAT else
+                       "another sound %.1fs ago" % (now - self.last_any) if now - self.last_any < SOUND_GAP and moment not in URGENT_SOUNDS else
+                       "a gag is playing" if now < self.gag_until and moment not in URGENT_SOUNDS else None)   # don't talk over a gag
+                if why:
+                    log.info("sound %s skipped: %s", moment, why); return False
             if not picks:
                 picks = sorted(os.path.basename(p)[len(moment) + 1:-4] for p in glob.glob(os.path.join(SOUNDS_DIR, moment + "_?.wav")))
             pool = [k for k in picks if k != self.last_pick.get(moment)] or picks
@@ -502,6 +517,46 @@ class Sounds:
             self.last_pick[moment] = k
             log.info("sound %s %s", moment, k)
             return True
+
+
+    def play_gag(self, event, force=False):
+        """The board started a gag (event "tap_<gag>_<mood>"): play its sound in step with the drawings,
+        at the volume from sounds.json. On/off: "enabled" and the "tap_gags" moment (on if missing)."""
+        gag, _, mood = event[4:].rpartition("_")
+        if gag == "prep" and mood == "meeting":
+            gag = "prep_alarm"                                # at the alarm itself, prep starts with the clock ringing
+        path = os.path.join(SOUNDS_DIR, f"tap_{gag}.wav")
+        with self.lock:
+            cfg = self.settings()
+            if not force and (not cfg.get("enabled") or not (cfg.get("moments") or {}).get("tap_gags", {"on": True}).get("on", True)):
+                return False
+            if not os.path.exists(path):
+                log.info("sound %s missing (run tools/make_gag_sounds.py)", path); return False
+            try:
+                with wave.open(path) as w:
+                    length = w.getnframes() / w.getframerate()
+            except Exception:
+                length = 5.0
+            delay = max(0.0, (0 if gag == "startle" else GAG_LEAD) - AFPLAY_LAG)
+            if self.gag_timer:
+                self.gag_timer.cancel()
+            self.gag_until = time.time() + delay + length
+            self.gag_timer = threading.Timer(delay, self._start_gag, (path, gag))
+            self.gag_timer.daemon = True
+            self.gag_timer.start()
+            return True
+
+    def _start_gag(self, path, gag):
+        with self.lock:
+            volume = self.settings().get("volume", 1.0)          # read now, so a just-moved slider counts
+            if self.proc and self.proc.poll() is None:
+                self.proc.terminate()                         # one voice at a time
+            try:
+                self.proc = subprocess.Popen(["afplay", "-v", str(volume), path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                log.info("afplay failed: %s", e); return
+            self.last_any = time.time()
+            log.info("sound gag %s (volume %s)", gag, volume)
 
 
 def _hex(c): return [int(c[i:i + 2], 16) for i in (0, 2, 4)]
@@ -780,10 +835,24 @@ class Buddy:
             self.celebrate_until = max(self.celebrate_until, now + (CELEBRATE_SECS if busy else DONE_SECS))
             if not watching:                        # you can already see that reply: no need to call out
                 self.sound("finished_while_busy" if busy else "finished")
+            else:
+                log.info("sound finished skipped: you're looking at it")
 
     def board_line(self, text):
         if text == "tap":
             self.tapped()
+        elif text.startswith("gag "):
+            self.gag_sound(text[4:].strip())
+
+    def gag_sound(self, event):
+        """A gag just started on the board: its sound, unless it's night and you've not been around
+        (a tap counts as being around, so tapping him at night still gets the startle's sound)."""
+        now = time.time()
+        h = time.localtime(now).tm_hour
+        if (night_hour(h) and now - self.last_active > NIGHT_AWAKE
+                and self.sounds.settings().get("quiet_at_night", True)):
+            return False
+        return self.sounds.play_gag(event)
 
     def tapped(self):
         """You tapped the glass. What it means depends on what he's showing:
@@ -818,7 +887,7 @@ class Buddy:
         night = night_hour(h)
         if (night and moment != "goodnight" and now - self.last_active > NIGHT_AWAKE
                 and self.sounds.settings().get("quiet_at_night", True)):
-            return False
+            log.info("sound %s skipped: night and you've been away", moment); return False
         return self.sounds.play(moment)
 
     def on_screen_locked(self, s):
@@ -1007,6 +1076,17 @@ class Buddy:
         # there by itself, so re-assert our mood once it has finished
         if self.dev.send("e " + name):
             self.resync_at = time.time() + 8
+            return True
+        return False
+
+    def play(self, name):
+        """An animation asked for from the computer: None if there's no such animation,
+        otherwise whether the board got it."""
+        ev = ANIMATIONS.get(name.strip().lower())
+        if ev is None:
+            return None
+        log.info("play: %s", name.strip().lower())
+        return self.event(ev)
 
     def _tick(self):
         # Nothing in here may kill this loop: it drives the board, the heartbeat and saving. (If it
@@ -1384,13 +1464,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             buddy.calendar.refresh_now(); self._reply(200, b"refreshing")
         elif self.path == "/cmd":
             ok = buddy.dev.send(body.decode().strip()); self._reply(200 if ok else 503, b"ok" if ok else b"board not connected")
+        elif self.path == "/play":                # an animation by name (GET /play lists them)
+            ok = buddy.play(body.decode())
+            if ok is None: self._reply(404, b"no such animation (GET /play lists them)")
+            else: self._reply(200 if ok else 503, b"ok" if ok else b"board not connected")
         elif self.path == "/sound":               # on | off | toggle | play <moment>
             cmd = body.decode().strip().split()
             if cmd and cmd[0] in ("on", "off", "toggle"):
                 on = buddy.sounds.set_enabled({"on": True, "off": False}.get(cmd[0], "toggle"))
                 self._reply(200, b"on" if on else b"off")
-            elif len(cmd) == 2 and cmd[0] == "play":
-                ok = buddy.sounds.play(cmd[1], force=True); self._reply(200 if ok else 404, b"ok" if ok else b"no such sound")
+            elif len(cmd) == 2 and cmd[0] == "play":            # a moment, or a gag as the board names it (tap_shock_idle)
+                ok = (buddy.sounds.play_gag(cmd[1], force=True) if cmd[1].startswith("tap_") else buddy.sounds.play(cmd[1], force=True))
+                self._reply(200 if ok else 404, b"ok" if ok else b"no such sound")
             else:
                 self._reply(400, b"use: on | off | toggle | play <moment>")
         else:
@@ -1401,6 +1486,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reply(200, json.dumps(buddy.status(), indent=2).encode(), "application/json")
         elif self.path == "/sound":
             self._reply(200, json.dumps(buddy.sounds.settings(), indent=2).encode(), "application/json")
+        elif self.path == "/play":
+            self._reply(200, json.dumps(list(ANIMATIONS)).encode(), "application/json")
         else:
             self._reply(404)
 

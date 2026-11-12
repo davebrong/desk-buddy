@@ -29,6 +29,8 @@ mkdir -p "$RT" "$HOME/Library/LaunchAgents"
 cp "$ROOT/tools/buddy_bridge.py" "$RT/bridge.py"
 # Lump's voice: renders the WAVs, and installs sounds.json (which moments make a noise) the first time.
 python3 "$ROOT/tools/make_sounds.py"
+# ...and the sound effects for his tap gags (tap_<gag>.wav), timed to the drawings in design/lump.html.
+python3 "$ROOT/tools/make_gag_sounds.py"
 
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

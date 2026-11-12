@@ -33,6 +33,7 @@ class FakeSounds:
     def __init__(self): self.played = []
     def settings(self): return {}
     def play(self, moment, force=False): self.played.append(moment); return True
+    def play_gag(self, event, force=False): self.played.append(event); return True
 
 
 class Clock:
@@ -192,6 +193,39 @@ class MeetingPrep(BridgeTest):
         self.assertIn("p 1", self.b.dev.sent)
 
 
+class PlayOnRequest(BridgeTest):
+    def test_named_gag_plays_and_mood_is_reasserted_after(self):
+        self.assertTrue(self.b.play("Disco\n"))
+        self.assertEqual(self.b.dev.sent[-1], "e tap_disco")
+        self.assertGreater(self.b.resync_at, 0)
+
+    def test_random_gag_is_left_to_the_board(self):
+        self.b.play("tap")
+        self.assertEqual(self.b.dev.sent[-1], "e tap")
+
+    def test_startle_and_events_map_to_board_names(self):
+        self.b.play("startle"); self.assertEqual(self.b.dev.sent[-1], "e tap_startle_night")
+        self.b.play("hello"); self.assertEqual(self.b.dev.sent[-1], "e hello")
+
+    def test_unknown_animation_sends_nothing(self):
+        before = list(self.b.dev.sent)
+        self.assertIsNone(self.b.play("e tap; rm -rf"))
+        self.assertEqual(self.b.dev.sent, before)
+
+    def test_playing_is_not_a_tap(self):
+        self.hook("PermissionRequest", "a")
+        self.b.play("tap")
+        self.assertEqual(self.mood(), "alert")
+
+    def test_no_board_reports_failure(self):
+        self.b.dev.send = lambda cmd, quiet=False: False
+        self.assertFalse(self.b.play("bomb"))
+
+    def test_every_gag_has_a_name(self):
+        for g in bridge.GAGS:
+            self.assertEqual(bridge.ANIMATIONS[g], f"tap_{g}")
+
+
 class AppWatcher(BridgeTest):
     """Chat/Cowork state read from the Claude app's screen."""
     def snap(self, title, buttons=(), statuses=()):
@@ -315,6 +349,77 @@ class DeviceLinks(unittest.TestCase):
             for _ in range(5): d._fail("socket://lump.local:4210", OSError("no route"))
             d._fail("socket://lump.local:4210", OSError("refused"))
         self.assertEqual(len(logs.output), 2)
+
+
+class GagSoundTest(unittest.TestCase):
+    """The board says "gag tap_<gag>_<mood>" when a gag starts; the bridge plays tap_<gag>.wav in step."""
+
+    def setUp(self):
+        import wave
+        self.dir = tempfile.mkdtemp(prefix="deskbuddy-sounds-")
+        for g in ("shock", "prep", "prep_alarm", "startle"):
+            with wave.open(os.path.join(self.dir, f"tap_{g}.wav"), "wb") as w:
+                w.setnchannels(1); w.setsampwidth(2); w.setframerate(44100); w.writeframes(b"\0\0" * 44100)
+        self.cfg = os.path.join(self.dir, "sounds.json")
+        self.write({"enabled": True, "volume": 0.4})
+        self.patches = [mock.patch.object(bridge, "SOUNDS_DIR", self.dir), mock.patch.object(bridge, "SOUNDS_FILE", self.cfg)]
+        for p in self.patches: p.start()
+        self.timers = []
+        self.patches.append(mock.patch.object(bridge.threading, "Timer", side_effect=lambda d, fn, args: self.timers.append((d, fn, args)) or mock.Mock()))
+        self.patches[-1].start()
+        self.s = bridge.Sounds()
+
+    def tearDown(self):
+        for p in self.patches: p.stop()
+
+    def write(self, cfg):
+        with open(self.cfg, "w") as f: json.dump(cfg, f)
+        os.utime(self.cfg, (time.time() + len(getattr(self, "timers", [])), time.time() + len(getattr(self, "timers", []))))
+
+    def fire(self):
+        d, fn, args = self.timers[-1]
+        with mock.patch.object(bridge.subprocess, "Popen") as popen:
+            fn(*args)
+        return d, popen.call_args[0][0] if popen.called else None
+
+    def test_plays_the_gags_sound_after_his_way_in_at_your_volume(self):
+        self.assertTrue(self.s.play_gag("tap_shock_idle"))
+        d, cmd = self.fire()
+        self.assertAlmostEqual(d, bridge.GAG_LEAD - bridge.AFPLAY_LAG)
+        self.assertEqual(cmd, ["afplay", "-v", "0.4", os.path.join(self.dir, "tap_shock.wav")])
+
+    def test_volume_is_read_when_the_sound_starts(self):
+        self.s.play_gag("tap_shock_working")
+        self.write({"enabled": True, "volume": 1.7})
+        self.assertEqual(self.fire()[1][2], "1.7")
+
+    def test_meeting_alarm_prep_has_its_own_sound_and_startle_has_no_lead(self):
+        self.s.play_gag("tap_prep_meeting"); self.assertTrue(self.fire()[1][3].endswith("tap_prep_alarm.wav"))
+        self.s.play_gag("tap_prep_idle"); self.assertTrue(self.fire()[1][3].endswith("tap_prep.wav"))
+        self.s.play_gag("tap_startle_night"); self.assertEqual(self.fire()[0], 0)
+
+    def test_switched_off_means_silent(self):
+        self.write({"enabled": False, "volume": 1})
+        self.assertFalse(self.s.play_gag("tap_shock_idle"))
+        self.write({"enabled": True, "moments": {"tap_gags": {"on": False}}})
+        self.assertFalse(self.s.play_gag("tap_shock_idle"))
+        self.assertEqual(self.timers, [])
+
+    def test_other_moments_dont_talk_over_a_gag(self):
+        self.write({"enabled": True, "moments": {"thanks": {"on": True, "pick": ["a"]}, "needs_you": {"on": True, "pick": ["a"]}}})
+        for m in ("thanks", "needs_you"):
+            open(os.path.join(self.dir, f"{m}_a.wav"), "wb").close()
+        self.s.play_gag("tap_shock_idle")
+        self.s.last_any = 0
+        with mock.patch.object(bridge.subprocess, "Popen"):
+            self.assertFalse(self.s.play("thanks"))
+            self.assertTrue(self.s.play("needs_you"))          # needing you still gets through
+
+    def test_board_gag_line_reaches_the_sounds(self):
+        b = bridge.Buddy(dev=FakeDevice(), focus=FakeFocus(), sounds=FakeSounds(), start=False)
+        with mock.patch.object(bridge.time, "time", return_value=NOON):
+            b.board_line("gag tap_moon_idle")
+        self.assertEqual(b.sounds.played, ["tap_moon_idle"])
 
 
 class FakeSlack:

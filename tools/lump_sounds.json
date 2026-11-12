@@ -15,6 +15,7 @@
     "goodnight":           {"on": true,  "pick": ["a", "b"]},
     "waking_up":           {"on": true,  "pick": ["a"]},
     "on_it":               {"on": false, "pick": ["a", "b"]},
-    "fidget":              {"on": false, "pick": ["a", "b"]}
+    "fidget":              {"on": false, "pick": ["a", "b"]},
+    "tap_gags":            {"on": true}
   }
 }

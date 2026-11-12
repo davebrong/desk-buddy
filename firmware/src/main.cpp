@@ -29,6 +29,7 @@
 //                     sends this so the password never passes through the bridge or its log),
 //                     then restart. "w" alone forgets them.
 // The board prints "tap" when the glass is tapped (and giggles itself when that makes sense).
+// It prints "gag tap_<gag>_<mood>" the moment a gag starts playing (the bridge plays its sound in step).
 //
 // On his own: with no word from the bridge for a minute (or since boot) he's "offline": he
 // drops what he was showing, idles and fidgets (asleep at night if a heartbeat ever told him the
@@ -210,6 +211,7 @@ static uint32_t seqStart = 0, loopSince = 0, nextFidget = 0;
 static int lastFrame = -1;
 static float fps = 0;
 
+static void say(const char* fmt, ...);   // below, with the link code
 static void startSeq(int s) { curSeq = s; seqStart = millis(); lastFrame = -1; }
 static int nextHop(int a, int b) {
   if (A.transOf[a][b] >= 0) return A.transOf[a][b];
@@ -231,7 +233,12 @@ static void settle(int m) {  // arrived in mood m's loop
     if (u > 0) { e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[m]); if (e2 < 0) e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[A.base[m]]); }
     pendingEvent = e2;
   }
-  if (pendingEvent >= 0 && A.from[pendingEvent] == m) { int e = pendingEvent; pendingEvent = -1; return startSeq(e); }
+  if (pendingEvent >= 0 && A.from[pendingEvent] == m) {
+    int e = pendingEvent; pendingEvent = -1;
+    // tell the bridge the moment a gag actually starts (it may have waited for a transition), so it can play its sound in step
+    if (A.name[e].startsWith("tap_")) say("gag %s", A.name[e].c_str());
+    return startSeq(e);
+  }
   startSeq(A.loopOf[m]); loopSince = millis();
 }
 static void setTarget(int m) {
