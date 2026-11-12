@@ -20,8 +20,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
--------------------------------------------------------------------------------
-This MIT license covers the code and the 3D models (firmware/ apart from
-data/lump.bin, tools/, tests/, enclosure/). Lump himself (the character, everything in design/, the
-baked frames in firmware/data/lump.bin, and his sounds) is licensed separately
-under CC BY-NC 4.0: see LICENSE-ART.md.
