@@ -36,7 +36,13 @@ import serial
 
 HTTP_PORT = 47823
 HOME = os.environ.get("DESKBUDDY_HOME") or os.path.expanduser("~/.desk-buddy")   # tests point this elsewhere
-NIGHT_START, NIGHT_END = 22, 7          # local hours
+NIGHT_START, NIGHT_END = 0, 8           # local hours: night (deep sleep under the blanket) is midnight to 8am
+NIGHT_SETTLE = 5 * 60                   # after he was last up to something (or you were), regular sleep this long first
+
+
+def night_hour(h):
+    """Is local hour h in the night window? (Works whether or not the window wraps past midnight.)"""
+    return NIGHT_START <= h < NIGHT_END if NIGHT_START < NIGHT_END else (h >= NIGHT_START or h < NIGHT_END)
 DONE_SECS = 8                           # celebration when nothing else is going on
 CELEBRATE_SECS = 3.5                    # quick celebration when other things are still going on
 UNSEEN_SECS = 15 * 60                   # "check me" sparkle lasts until you reply, or this long
@@ -480,6 +486,7 @@ class Buddy:
         self.resync_at = 0.0
         self.sounds = sounds or Sounds()
         self.last_active = 0.0         # last time you did something (prompt, answer, new session)
+        self.last_up = time.time()     # last time he was showing anything but sleep (night waits NIGHT_SETTLE after it)
         self.goodnight_night = None    # which night we've already said goodnight for
         self.woke_at = 0.0
         self.working_since, self.long_played = None, False
@@ -663,7 +670,7 @@ class Buddy:
         (goodnight is the exception: it's the last thing he says)."""
         now = time.time()
         h = time.localtime(now).tm_hour
-        night = h >= NIGHT_START or h < NIGHT_END
+        night = night_hour(h)
         if (night and moment != "goodnight" and now - self.last_active > NIGHT_AWAKE
                 and self.sounds.settings().get("quiet_at_night", True)):
             return False
@@ -711,8 +718,10 @@ class Buddy:
         if "working" in eff: return "working"
         if "snoozed" in eff or any(s.get("unseen") and now - s["unseen"] < UNSEEN_SECS for s in self.sessions.values() if s is not skip):
             return "awake"
-        h = time.localtime(now).tm_hour
-        return "night" if (h >= NIGHT_START or h < NIGHT_END) else "idle"
+        if not night_hour(time.localtime(now).tm_hour):
+            return "idle"
+        # just been up to something (or you have): plain sleep for a few minutes, then the blanket comes up
+        return "idle" if now - max(self.last_up, self.last_active) < NIGHT_SETTLE else "night"
 
     def next_meeting(self, now):
         try:
@@ -724,6 +733,12 @@ class Buddy:
         return min(live, key=lambda m: m["start"]) if live else None
 
     def mood_locked(self, now):
+        mood = self._pick_mood_locked(now)
+        if mood not in ("idle", "night"):
+            self.last_up = now                  # night waits NIGHT_SETTLE after this
+        return mood
+
+    def _pick_mood_locked(self, now):
         self.counts_locked(now)                 # also drops forgotten sessions
         m = self.next_meeting(now)
         if m and 0 <= now - m["start"] < MEETING_ALERT_SECS and m["start"] not in self.meeting_dismissed:
@@ -888,7 +903,9 @@ class AppPages:
     that aren't on screen; a page that leaves the screen while working gets a short expiry."""
 
     APP_STALE = 3 * 60
-    STOP_BTN = re.compile(r"^stop( response| generating)?$", re.I)
+    # Claude's own "Stop response" button. Not a bare "Stop": web pages open in the app (like the gag
+    # sound review page, with its own Stop button for audio) would otherwise look like a chat responding.
+    STOP_BTN = re.compile(r"^stop (response|generating)$", re.I)
     NEEDS_BTN = re.compile(r"\b(allow|approve|deny|don.?t allow|reject|decline)\b", re.I)
     WORK_STATUS = re.compile(r"^(claude is (responding|thinking)|running a command.*|working…?|running|thinking|responding)$", re.I)
     USAGE_LABEL = re.compile(r"^usage:\s*(.+?):\s*(\d+(?:\.\d+)?)\s*%", re.I)

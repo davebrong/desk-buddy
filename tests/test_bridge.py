@@ -145,8 +145,23 @@ class MoodRules(BridgeTest):
         self.assertEqual(self.mood(), "alert")
 
     def test_night(self):
-        self.clock.t = NOON + 11 * 3600                         # 23:00
+        self.clock.t = NOON + 13 * 3600                         # 01:00
         self.assertEqual(self.mood(), "night")
+
+    def test_night_is_midnight_to_eight(self):
+        for hour, want in ((23, "idle"), (0, "night"), (7, "night"), (8, "idle")):
+            self.clock.t = NOON + (hour - 12) % 24 * 3600 + 30 * 24 * 3600   # well after anything happened
+            self.assertEqual(self.mood(), want, f"{hour}:00")
+
+    def test_regular_sleep_for_a_few_minutes_before_night(self):
+        self.clock.t = NOON + 13 * 3600                         # 01:00, busy
+        self.hook("PermissionRequest", "a")
+        self.assertEqual(self.mood(), "alert")
+        self.hook("SessionEnd", "a")
+        self.clock.advance(4 * 60)
+        self.assertEqual(self.mood(), "idle")                   # just been up: plain sleep first
+        self.clock.advance(2 * 60)
+        self.assertEqual(self.mood(), "night")                  # then the blanket comes up
 
 
 class MeetingPrep(BridgeTest):
@@ -175,6 +190,24 @@ class MeetingPrep(BridgeTest):
         self.b.update(); self.b.dev.sent.clear()
         self.b.resend()
         self.assertIn("p 1", self.b.dev.sent)
+
+
+class AppWatcher(BridgeTest):
+    """Chat/Cowork state read from the Claude app's screen."""
+    def snap(self, title, buttons=(), statuses=()):
+        self.b_pages.snapshot({"trusted": True, "pages": {title: {"buttons": list(buttons), "statuses": list(statuses), "markers": []}}})
+
+    def setUp(self):
+        super().setUp()
+        self.b_pages = bridge.AppPages(self.b)
+
+    def test_claudes_stop_button_means_a_chat_is_working(self):
+        self.snap("Planning - Claude", buttons=["Stop response"])
+        self.assertEqual(self.mood(), "working")
+
+    def test_a_web_page_with_its_own_stop_button_is_not_a_chat(self):
+        self.snap("Lump Gag Sounds", buttons=["Play all", "Stop"])
+        self.assertEqual(self.mood(), "idle")
 
 
 class Heartbeat(BridgeTest):

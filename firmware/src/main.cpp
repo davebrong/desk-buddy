@@ -55,7 +55,7 @@ constexpr uint32_t ESCALATE_MS = 45000, LONGHAUL_MS = 10UL * 60 * 1000;
 constexpr uint8_t BL_DAY = 255, BL_NIGHT = 70;
 constexpr uint32_t HOST_TIMEOUT_MS = 60000;    // bridge heartbeats every 15 s
 constexpr uint32_t OFFLINE_MARK_AFTER_MS = 8000;  // at boot, give the bridge a moment before showing the mark
-constexpr uint8_t NIGHT_FROM = 22, NIGHT_UNTIL = 7;  // matches the bridge
+constexpr uint8_t NIGHT_FROM = 0, NIGHT_UNTIL = 8;   // midnight to 8am; matches the bridge
 
 class LGFX : public lgfx::LGFX_Device {
   lgfx::Panel_ST7789 panel;
@@ -334,12 +334,14 @@ static int32_t clockBase = -1;                 // seconds since local midnight a
 static bool hostSeen = false, offline = true;  // offline until the bridge says something
 static int ovWorking = 0, ovWaiting = 0, ovUnseen = 0;
 static bool hostAlive(uint32_t now) { return hostSeen && now - lastHost < HOST_TIMEOUT_MS; }
+static bool nightHour(int h) {                 // works whether or not the window wraps past midnight
+  return NIGHT_FROM < NIGHT_UNTIL ? (h >= NIGHT_FROM && h < NIGHT_UNTIL) : (h >= NIGHT_FROM || h < NIGHT_UNTIL);
+}
 static bool nightNow(uint32_t now) {
   struct tm t;                                 // the internet's clock first, then the bridge's
-  if (tzRule.length() && getLocalTime(&t, 0)) return t.tm_hour >= NIGHT_FROM || t.tm_hour < NIGHT_UNTIL;
+  if (tzRule.length() && getLocalTime(&t, 0)) return nightHour(t.tm_hour);
   if (clockBase < 0) return false;
-  uint32_t h = ((clockBase + (now - clockAt) / 1000) % 86400) / 3600;
-  return h >= NIGHT_FROM || h < NIGHT_UNTIL;
+  return nightHour(((clockBase + (now - clockAt) / 1000) % 86400) / 3600);
 }
 static void heardFromHost() {
   bool was = offline;
