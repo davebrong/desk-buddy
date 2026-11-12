@@ -20,7 +20,9 @@ ESP32 plays back at 24 fps.
 ## What you need
 
 - **The display:** Waveshare / SpotPear **ESP32-S3-LCD-1.3** "prism" (ESP32-S3R8, 16 MB flash,
-  8 MB PSRAM, 240×240 ST7789 behind a glass cube, motion sensor for taps). Keep its stock case.
+  8 MB PSRAM, 240×240 ST7789 behind a glass cube, motion sensor for taps). Lump was built on
+  [this AliExpress listing](https://www.aliexpress.com/item/1005009887388696.html), colour option
+  **ESP32-S3-LCD-1.3-C** (about $20). Keep its stock case: the mount is sized for it.
 - **A USB-C data cable** for the first flash. After Wi-Fi setup he only needs power.
 - **A Mac.** The bridge that connects Claude to Lump is macOS-only (launchd, a small Swift helper,
   `afplay`). The firmware itself doesn't care.
