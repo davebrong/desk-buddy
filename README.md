@@ -1,8 +1,8 @@
 # Lump, a desk buddy for Claude
 
-<img src="design/lump-desk-buddy.png" alt="Lump, an orange hand-drawn blob with a curly cowlick, holding a letter" width="240" align="right">
+<img src="design/media/lump-dance.gif" alt="Lump, an orange blob with a curly cowlick, dancing in sunglasses under a disco ball inside the glass cube display" width="240" align="right">
 
-Lump is a little hand-drawn blob who lives in a tiny glass prism display on your desk and shows
+Lump is a little blob who lives in a tiny glass prism display on your desk and shows
 you what your Claude sessions are up to, so you can look away from the screen while Claude works.
 
 - **Working** while Claude Code is busy, **waving for attention** when a session needs you
@@ -12,10 +12,11 @@ you what your Claude sessions are up to, so you can look away from the screen wh
 - **Tap the glass** and he plays one of a dozen gags: electric shock, ring of fire, wolf howl,
   banana peel, cartoon bomb and more.
 - Optional extras: turns blue before calendar meetings, holds up a letter when a Slack VIP
-  messages you, a tiny ocarina voice, sleeps at night, and runs over Wi-Fi with over-the-air updates.
+  messages you, a tiny ocarina voice and sound effects for the gags, sleeps at night, and runs over Wi-Fi with over-the-air updates.
 
-Every frame is drawn by hand in a web page (`design/lump.html`) and baked into a file the
-ESP32 plays back at 24 fps.
+Lump was built with Claude Code, drawings included: Claude draws every frame in code, in a scratchy
+hand-drawn style, in one web page (`design/lump.html`), and a script bakes it into a file the ESP32
+plays back at 24 fps.
 
 ## What you need
 
@@ -156,7 +157,9 @@ calendar / Slack ──┘   one mood for all sessions                   plays b
 | `tests/` | Bridge tests (no board needed): `~/.desk-buddy/venv/bin/python -m unittest discover -s tests` |
 
 The bridge's debug endpoints help when you're poking at him: `curl 127.0.0.1:47823/status`, or
-`curl -X POST --data "e tap" 127.0.0.1:47823/cmd` to send a raw command.
+`curl -X POST --data "e tap" 127.0.0.1:47823/cmd` to send a raw command. To play an animation on
+demand (from a hotkey, a menu bar app or Shortcuts), `curl -X POST --data disco 127.0.0.1:47823/play`;
+`curl 127.0.0.1:47823/play` lists the names.
 
 ## License
 
