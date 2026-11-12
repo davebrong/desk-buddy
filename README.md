@@ -27,7 +27,7 @@ ESP32 plays back at 24 fps.
 - **Claude Code**, plus optionally the Claude desktop app (for Chat and Cowork states).
 - [PlatformIO](https://platformio.org/) (`brew install platformio`), Python 3, and the Xcode
   command line tools (`xcode-select --install`).
-- Optional: a 3D printer for the [monitor mount or planter](enclosure/print/).
+- Optional: a 3D printer for the [monitor mount](enclosure/print/), which holds him on the back of your monitor, peeking over the top.
 
 ## Setup
 
@@ -129,7 +129,7 @@ calendar / Slack ──┘   one mood for all sessions                   plays b
 | `tools/buddy_bridge.py` | The bridge: Claude hooks, app state, usage, calendar, Slack, sounds → one mood |
 | `tools/appwatch/` | Swift helper that reads Chat/Cowork state from the Claude app's accessibility tree |
 | `tools/flash.sh`, `tools/ota.py`, `tools/wifi_setup.py` | Getting firmware and drawings onto the board |
-| `enclosure/` | OpenSCAD sources for a monitor mount and a moss planter, with [ready-to-print STLs](enclosure/print/) |
+| `enclosure/` | OpenSCAD source for the adjustable monitor mount, with [ready-to-print STLs](enclosure/print/) |
 | `tests/` | Bridge tests (no board needed): `~/.desk-buddy/venv/bin/python -m unittest discover -s tests` |
 
 The bridge's debug endpoints help when you're poking at him: `curl 127.0.0.1:47823/status`, or

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Re-render the ready-to-print STLs in enclosure/print/ from the OpenSCAD sources.
-# Run it after changing a measurement in enclosure/*.scad. Needs OpenSCAD with the Manifold
+# Re-render the monitor mount's ready-to-print STLs in enclosure/print/ from the OpenSCAD source.
+# Run it after changing a measurement in enclosure/lump_monitor_mount.scad. Needs OpenSCAD with the Manifold
 # backend (2024 or newer; brew install openscad). Binary STL, one file per printable part.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,8 +16,5 @@ render() {   # render <scad> <out name> <-D defines...>
 for p in plate arm cradle hinge_bolt hinge_nut swivel_bolt thread_test print_all; do
   render lump_monitor_mount.scad "mount_$p" -D "part=\"$p\"" &
 done
-for s in round box; do for p in pot deck; do
-  render lump_planter.scad "planter_${s}_$p" -D "part=\"$p\"" -D "pot_shape=\"$s\"" &
-done; done
 wait
 echo "Done: $OUT"
