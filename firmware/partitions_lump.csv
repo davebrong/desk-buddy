@@ -1,7 +1,10 @@
-# Lump's animation is baked into the app, so give the app most of the 16MB flash (no second OTA slot).
+# Two 2 MB program slots (so the program can be updated over Wi-Fi: the new one is written to the
+# slot not running, then booted) and Lump's drawings in their own partition (subtype 0x40, "lump"),
+# which tools/ota.py --art rewrites in place. NVS (Wi-Fi details, pairing token) is kept across both.
 # Name,    Type, SubType,  Offset,   Size
 nvs,       data, nvs,      0x9000,   0x5000
 otadata,   data, ota,      0xe000,   0x2000
-app0,      app,  ota_0,    0x10000,  0xC00000
-spiffs,    data, spiffs,   0xC10000, 0x3E0000
+app0,      app,  ota_0,    0x10000,  0x200000
+app1,      app,  ota_1,    0x210000, 0x200000
+lump,      data, 0x40,     0x410000, 0xBE0000
 coredump,  data, coredump, 0xFF0000, 0x10000

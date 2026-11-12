@@ -1,5 +1,7 @@
 // Desk Buddy — Lump frame player.
 // Plays the hand-drawn frames baked from design/lump.html (tools/export_frames.py -> data/lump.bin).
+// The frames live in their own flash partition ("lump"), not in the program, so the art and the
+// program can each be updated over Wi-Fi on their own (tools/ota.py; see "Updates" below).
 // The previous Vec firmware lives in archive/vec_main.cpp.
 //
 // Moods loop (idle, working, alert, done, waiting, longhaul, night). Changing mood always plays
@@ -37,6 +39,16 @@
 // port 4210, so the bridge can drive him without a USB data cable. A connection must start with
 // "k <token>" (the pairing token from setup) or it's dropped. Replies go to USB and to the
 // network client. He also sets his clock from the internet, so he sleeps at night on his own.
+//
+// Updates over Wi-Fi (tools/ota.py does all this): a small web server on port 80, every request
+// carrying the pairing token in X-Lump-Token.
+//   GET  /info?app_len=N&art_len=M   SHA-256 of the first N bytes of the running program and the
+//                                    first M bytes of the art, so the uploader sends only what changed
+//   POST /update/app                 new firmware.bin (application/octet-stream, X-Lump-MD5 checked),
+//                                    written to the other program slot, then restart into it
+//   POST /update/art                 new lump.bin (X-Lump-Sha256 checked) into the art partition, then restart
+// While an update streams in he shows a progress bar instead of animating. If the art is missing or
+// bad he says so on screen but keeps Wi-Fi and updates working, so it can be fixed without a cable.
 // On its own the device also: fidgets every minute or so while asleep, escalates "alert" to
 // "waiting" after 45 s, slides "working" into "longhaul" after 10 min, and dims at night.
 
@@ -48,6 +60,11 @@
 #include <Preferences.h>
 #include <time.h>
 #include <stdarg.h>
+#include <WebServer.h>
+#include <Update.h>
+#include <esp_partition.h>
+#include <esp_ota_ops.h>
+#include "mbedtls/sha256.h"
 
 constexpr int PIN_SCLK = 40, PIN_MOSI = 41, PIN_DC = 38, PIN_CS = 39, PIN_RST = 42, PIN_BL = 20;
 constexpr bool PRISM_MIRROR = true;  // rotations 4–7 are mirrored for the prism
@@ -77,9 +94,19 @@ class LGFX : public lgfx::LGFX_Device {
 static LGFX tft;
 static LGFX_Sprite fb(&tft);
 
-// ---------- baked animation data (embedded from data/lump.bin) ----------
-extern const uint8_t lump_start[] asm("_binary_data_lump_bin_start");
-extern const uint8_t lump_end[] asm("_binary_data_lump_bin_end");
+// ---------- animation data: the "lump" flash partition, memory-mapped ----------
+static const esp_partition_t* artPart = nullptr;
+static const uint8_t* art = nullptr;            // mapped start of the partition
+static size_t artSize = 0;                      // mapped length (the whole partition)
+static esp_partition_mmap_handle_t artMap;
+static bool mapArt() {
+  artPart = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, (esp_partition_subtype_t)0x40, "lump");
+  if (!artPart) return false;
+  const void* ptr = nullptr;
+  if (esp_partition_mmap(artPart, 0, artPart->size, ESP_PARTITION_MMAP_DATA, &ptr, &artMap) != ESP_OK) return false;
+  art = (const uint8_t*)ptr; artSize = artPart->size;
+  return true;
+}
 
 constexpr int MAX_MOODS = 12, MAX_SEQ = 250;
 enum Kind : uint8_t { LOOP = 0, TRANS = 1, EVENT = 2 };
@@ -96,28 +123,44 @@ static inline uint16_t rd16(const uint8_t* p) { return p[0] | (p[1] << 8); }
 static inline uint32_t rd32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | (uint32_t(p[3]) << 24); }
 static String rdStr(const uint8_t*& p) { int n = *p++; String s; s.reserve(n); for (int i = 0; i < n; i++) s += char(p[i]); p += n; return s; }
 
+// Every read is bounds-checked against the partition: half-written or garbage art must fail
+// cleanly (and leave Wi-Fi updates working), never crash.
 static bool parseAnim() {
-  const uint8_t* p = lump_start;
+  if (!art || artSize < 16) return false;
+  const uint8_t* p = art; const uint8_t* end = art + artSize;
+  auto room = [&](size_t n) { return size_t(end - p) >= n; };
   if (memcmp(p, "LUMP", 4) != 0) return false;
   p += 4;
   if (rd16(p) != 3) return false; p += 2;
   A.nFrames = rd16(p); p += 2;
   A.nMoods = *p++; A.fps = *p++;
   if (A.nMoods > MAX_MOODS) return false;
-  for (int m = 0; m < A.nMoods; m++) { A.base[m] = *p++; A.moodName[m] = rdStr(p); A.loopOf[m] = -1; }
+  for (int m = 0; m < A.nMoods; m++) {
+    if (!room(2) || !room(2 + p[1])) return false;
+    A.base[m] = *p++; A.moodName[m] = rdStr(p); A.loopOf[m] = -1;
+    if (A.base[m] >= A.nMoods) return false;
+  }
   memset(A.transOf, -1, sizeof(A.transOf));
+  if (!room(1)) return false;
   A.nSeqs = *p++;
   if (A.nSeqs > MAX_SEQ) return false;
   for (int i = 0; i < A.nSeqs; i++) {
+    if (!room(4) || !room(4 + p[3] + 2)) return false;
     A.kind[i] = p[0]; A.from[i] = p[1]; A.to[i] = p[2]; p += 3;
+    if (A.from[i] >= A.nMoods || A.to[i] >= A.nMoods) return false;
     A.name[i] = rdStr(p);
-    A.len[i] = rd16(p); p += 2; A.seq[i] = p; p += A.len[i] * 2;
+    A.len[i] = rd16(p); p += 2;
+    if (!A.len[i] || !room(size_t(A.len[i]) * 2)) return false;
+    A.seq[i] = p; p += A.len[i] * 2;
+    for (int k = 0; k < A.len[i]; k++) if (rd16(A.seq[i] + 2 * k) >= A.nFrames) return false;
     if (A.kind[i] == LOOP) A.loopOf[A.from[i]] = i;
     else if (A.kind[i] == TRANS) A.transOf[A.from[i]][A.to[i]] = i;
   }
   for (int m = 0; m < A.nMoods; m++) if (A.loopOf[m] < 0) return false;
+  if (!room(size_t(A.nFrames) * 4)) return false;
   A.offsets = p; p += A.nFrames * 4;
   A.data = p;
+  for (int f = 0; f < A.nFrames; f++) if (rd32(A.offsets + 4 * f) >= size_t(end - A.data)) return false;
   return A.ok = true;
 }
 static int moodIndex(const String& n) { for (int m = 0; m < A.nMoods; m++) if (A.moodName[m] == n) return m; return -1; }
@@ -475,6 +518,7 @@ static void pollSerial() {
 }
 
 // ---------- Wi-Fi ----------
+static void webBegin();                         // below, with the update server
 static void wifiBegin() {
   Preferences pr; pr.begin("lump", true);
   wifiSsid = pr.getString("ssid", ""); String pass = pr.getString("pass", "");
@@ -485,6 +529,7 @@ static void wifiBegin() {
   WiFi.begin(wifiSsid.c_str(), pass.c_str());
   if (tzRule.length()) configTzTime(tzRule.c_str(), "pool.ntp.org", "time.apple.com");
   server.begin(); server.setNoDelay(true);
+  webBegin();
   wifiStarted = true;
   Serial.printf("wifi joining %s\n", wifiSsid.c_str());
 }
@@ -531,18 +576,123 @@ static void pollNet() {
   }
 }
 
+// ---------- updates over Wi-Fi ----------
+static WebServer web(80);
+static uint32_t restartAt = 0;
+static bool webAuthed() { return netToken.length() >= 8 && web.header("X-Lump-Token") == netToken; }
+static String hex(const uint8_t* b, int n) { static const char* H = "0123456789abcdef"; String s; for (int i = 0; i < n; i++) { s += H[b[i] >> 4]; s += H[b[i] & 15]; } return s; }
+// SHA-256 of the first len bytes of a partition (len 0 = nothing to compare: empty string)
+static String partSha(const esp_partition_t* part, size_t len) {
+  if (!part || !len || len > part->size) return "";
+  mbedtls_sha256_context c; mbedtls_sha256_init(&c); mbedtls_sha256_starts(&c, 0);
+  static uint8_t buf[4096];
+  for (size_t off = 0; off < len; off += sizeof buf) {
+    size_t n = min(sizeof buf, len - off);
+    if (esp_partition_read(part, off, buf, n) != ESP_OK) { mbedtls_sha256_free(&c); return ""; }
+    mbedtls_sha256_update(&c, buf, n);
+  }
+  uint8_t out[32]; mbedtls_sha256_finish(&c, out); mbedtls_sha256_free(&c);
+  return hex(out, 32);
+}
+// shown on the glass while an update streams in (drawn straight to the screen: he isn't animating)
+static void progress(const char* what, size_t done, size_t total) {
+  static uint32_t last = 0;
+  if (done && done != total && millis() - last < 150) return;
+  last = millis();
+  uint16_t cream = lgfx::color565(255, 241, 220);
+  if (!done) { tft.fillScreen(TFT_BLACK); tft.setTextColor(cream); tft.setTextDatum(middle_center); tft.drawString(what, 120, 100); tft.drawRect(30, 125, 180, 14, cream); }
+  if (total) tft.fillRect(32, 127, int(176.f * min(done, total) / total), 10, cream);
+}
+static void onInfo() {
+  if (!webAuthed()) return web.send(401, "text/plain", "pairing token needed\n");
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  String j = "{\"running\":\"" + String(running ? running->label : "?") + "\"";
+  j += ",\"app_sha\":\"" + partSha(running, web.arg("app_len").toInt()) + "\"";
+  j += ",\"art_sha\":\"" + partSha(artPart, web.arg("art_len").toInt()) + "\"";
+  j += ",\"art_ok\":" + String(A.ok ? "true" : "false");
+  j += ",\"art_room\":" + String(artPart ? artPart->size : 0);
+  const esp_partition_t* next = esp_ota_get_next_update_partition(nullptr);
+  j += ",\"app_room\":" + String(next ? next->size : 0) + "}\n";
+  web.send(200, "application/json", j);
+}
+// shared by both uploads: the streaming state of the one in progress
+static bool upOk = false; static String upErr; static size_t upSize = 0, upErased = 0;
+static mbedtls_sha256_context upSha;
+static void upFail(const String& e) { if (upOk) { upOk = false; upErr = e; Serial.printf("update failed: %s\n", e.c_str()); } }
+static void onAppData() {
+  HTTPRaw& r = web.raw();
+  if (r.status == RAW_START) {
+    upOk = webAuthed(); upErr = upOk ? "" : "pairing token needed";
+    if (!upOk) return;
+    upSize = web.header("X-Lump-Size").toInt();
+    A.ok = false; progress("updating program", 0, upSize);
+    if (!Update.begin(upSize ? upSize : UPDATE_SIZE_UNKNOWN)) return upFail(String("begin: ") + Update.errorString());
+    if (web.header("X-Lump-MD5").length() == 32) Update.setMD5(web.header("X-Lump-MD5").c_str());
+  } else if (r.status == RAW_WRITE && upOk) {
+    if (Update.write(r.buf, r.currentSize) != r.currentSize) return upFail(String("write: ") + Update.errorString());
+    progress("updating program", r.totalSize, upSize);
+  } else if (r.status == RAW_END && upOk) {
+    if (!Update.end(true)) return upFail(String("check: ") + Update.errorString());
+  } else if (r.status == RAW_ABORTED) { upFail("upload cut short"); Update.abort(); }
+}
+static void onArtData() {
+  HTTPRaw& r = web.raw();
+  if (r.status == RAW_START) {
+    upOk = webAuthed(); upErr = upOk ? "" : "pairing token needed";
+    if (!upOk) return;
+    upSize = web.header("X-Lump-Size").toInt(); upErased = 0;
+    if (!artPart || !upSize || upSize > artPart->size) return upFail("art missing size or too big for the partition");
+    A.ok = false; progress("updating drawings", 0, upSize);
+    mbedtls_sha256_init(&upSha); mbedtls_sha256_starts(&upSha, 0);
+  } else if (r.status == RAW_WRITE && upOk) {
+    size_t at = r.totalSize - r.currentSize;
+    if (at + r.currentSize > upSize) return upFail("more data than X-Lump-Size");
+    while (upErased < at + r.currentSize) {        // erase 64 KB blocks just ahead of the data
+      size_t n = min<size_t>(0x10000, artPart->size - upErased);
+      if (esp_partition_erase_range(artPart, upErased, n) != ESP_OK) return upFail("erase failed");
+      upErased += n;
+    }
+    if (esp_partition_write(artPart, at, r.buf, r.currentSize) != ESP_OK) return upFail("write failed");
+    mbedtls_sha256_update(&upSha, r.buf, r.currentSize);
+    progress("updating drawings", r.totalSize, upSize);
+  } else if (r.status == RAW_END && upOk) {
+    uint8_t out[32]; mbedtls_sha256_finish(&upSha, out);
+    if (r.totalSize != upSize) return upFail("size mismatch");
+    String want = web.header("X-Lump-Sha256"); want.toLowerCase();
+    if (want.length() && want != hex(out, 32)) return upFail("sha256 mismatch");
+  } else if (r.status == RAW_ABORTED) upFail("upload cut short");
+}
+static void onUpdateDone() {
+  if (upOk) { web.send(200, "text/plain", "ok, restarting\n"); Serial.println("update ok, restarting"); restartAt = millis() + 500; }
+  else {
+    web.send(upErr == "pairing token needed" ? 401 : 500, "text/plain", "err " + upErr + "\n");
+    if (upErr != "pairing token needed") restartAt = millis() + 500;   // the screen was taken over: start clean
+  }
+}
+static void webBegin() {
+  static const char* keep[] = {"X-Lump-Token", "X-Lump-Size", "X-Lump-MD5", "X-Lump-Sha256"};
+  web.collectHeaders(keep, 4);
+  web.on("/info", HTTP_GET, onInfo);
+  web.on("/update/app", HTTP_POST, onUpdateDone, onAppData);
+  web.on("/update/art", HTTP_POST, onUpdateDone, onArtData);
+  web.begin();
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(PIN_BL, OUTPUT); analogWrite(PIN_BL, BL_DAY);
   tft.init(); tft.setRotation(PRISM_MIRROR ? 4 : 0); tft.fillScreen(TFT_BLACK);
   fb.setColorDepth(16); fb.setPsram(false);
   if (!fb.createSprite(240, 240)) { fb.setPsram(true); fb.createSprite(240, 240); }
-  if (!parseAnim()) {
-    Serial.println("err lump.bin missing or bad");
-    tft.setTextColor(TFT_RED); tft.drawString("lump.bin bad", 60, 110);
+  if (!mapArt() || !parseAnim()) {
+    A.ok = false;
+    Serial.println("err lump art missing or bad (send it: tools/ota.py --art)");
+    tft.setTextColor(lgfx::color565(255, 241, 220)); tft.setTextDatum(middle_center);
+    tft.drawString("no drawings yet", 120, 104); tft.drawString("tools/ota.py --art", 120, 124);
+    wifiBegin();                                   // still reachable, so the art can be sent
     return;
   }
-  Serial.printf("desk-buddy lump ready: %u moods, %u sequences, %u frames, %u bytes\n", A.nMoods, A.nSeqs, A.nFrames, unsigned(lump_end - lump_start));
+  Serial.printf("desk-buddy lump ready: %u moods, %u sequences, %u frames\n", A.nMoods, A.nSeqs, A.nFrames);
   randomSeed(esp_random());
   if (imuInit()) { xTaskCreatePinnedToCore(imuTask, "imu", 4096, nullptr, 2, nullptr, 0); Serial.println("imu ready"); }
   else Serial.println("imu not found");
@@ -553,7 +703,9 @@ void setup() {
 void loop() {
   pollSerial();
   pollNet();
-  if (!A.ok) { delay(100); return; }
+  if (wifiStarted) web.handleClient();
+  if (restartAt && millis() > restartAt) ESP.restart();
+  if (!A.ok) { delay(20); return; }
   if (tapPending) {
     tapPending = false;
     say("tap");                                    // the bridge decides what a tap means for Claude
