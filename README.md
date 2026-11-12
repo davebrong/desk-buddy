@@ -114,8 +114,8 @@ monitor** is plugged in and the desk Lump is online, you're "at your desk" and t
 - pick **My Desk Monitor**: the screen the desk Lump sits by (the default is any external display), or
 - show him **All the Time** (handy if you don't use a monitor, or if the desk Lump is by your laptop).
 
-The first time you open Lump.app he shows for a minute, even at your desk. Open it again any time he's
-hidden and he comes back for a minute, so you can always reach that menu. To start him at login, add Lump.app under System Settings › General › Login Items.
+Can't see him? Open Lump (Spotlight works) and he appears with that menu open, even at your desk. Once you
+close it he hides again if you're at your desk. The same goes for the very first launch. To start him at login, add Lump.app under System Settings › General › Login Items.
 
 ## Make him your own
 

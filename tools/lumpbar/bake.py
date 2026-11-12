@@ -5,6 +5,7 @@ Renders every mood loop from design/lump.html in headless Chrome, shrunk to fit 
 writes tools/lumpbar/frames/:
 
   manifest.json            {"size": 80, "fps": 24, "moods": {mood: {"frames": n, "ticks": [frame per tick]}}}
+  (and tools/lumpbar/icon.png, the 1024 px app icon)
   <mood>-<ink>-<k|w>.png   one horizontal strip per mood, ink (glow = cream line for black
                            backgrounds, paper = dark line for light ones) and body colour:
                            k = body drawn black, w = body drawn white.
@@ -20,6 +21,7 @@ from urllib.parse import urlparse, parse_qs
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DESIGN = os.path.join(ROOT, "design")
 OUT = os.path.join(ROOT, "tools", "lumpbar", "frames")
+ICON = os.path.join(ROOT, "tools", "lumpbar", "icon.png")      # 1024 px app icon
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 SIZE = 80
 
@@ -60,6 +62,33 @@ function fit(L, m) {      // square around everything his body covers across the
   return [(x0 + x1) / 2 - side / 2, (y0 + y1) / 2 - side / 2, side, side];
 }
 function hash(a) { let h = 2166136261; for (let i = 0; i < a.length; i++) h = Math.imul(h ^ a[i], 16777619); return h >>> 0; }
+// App icon: his plain smiling drawing (N) on black, like the glass, drawn at full size rather than scaled up.
+async function icon(L) {
+  const N = 1024, cv = document.createElement('canvas'); cv.width = cv.height = N;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#000'; c.beginPath(); c.roundRect(100, 100, 824, 824, 185); c.fill();
+  L.setLine('glow'); L.setTint('#FF7A45');
+  octx.setTransform(1, 0, 0, 1, 0, 0); octx.clearRect(0, 0, 240, 240);
+  L.render(wrap(), L.fxFor('N'), 'N', 0, { still: true, noFX: true });
+  const d = octx.getImageData(0, 0, 240, 240).data; let y0 = 240, y1 = 0, x0 = 240, x1 = 0;
+  for (let y = 0; y < 240; y++) for (let x = 0; x < 240; x++) if (d[(y * 240 + x) * 4 + 3] > 40) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const k = 560 / (y1 - y0), ox = 512 - (x0 + x1) / 2 * k, oy = 540 - (y0 + y1) / 2 * k;
+  // render() starts with setTransform(1,0,0,1,0,0): map that to our scale so every line is drawn crisp at 1024
+  let fills = 0;
+  const big = new Proxy(c, {
+    get(t, p) {
+      if (p === 'setTransform') return () => t.setTransform(k, 0, 0, k, ox, oy);
+      if (p === 'fillRect') return (x, y, w, h) => { if (x === 0 && y === 0 && w === 240 && h === 240) return; t.fillRect(x, y, w, h); };
+      if (p === 'fill') return (...a) => { if (fills++ === 0) return; t.fill(...a); };
+      const v = t[p]; return typeof v === 'function' ? v.bind(t) : v;
+    },
+    set(t, p, v) { t[p] = v; return true; }
+  });
+  c.save(); c.beginPath(); c.roundRect(100, 100, 824, 824, 185); c.clip();
+  L.render(big, L.fxFor('N'), 'N', 0, { still: true, noFX: true });
+  c.restore();
+  return new Promise(r => cv.toBlob(r, 'image/png'));
+}
 async function post(path, body) { await fetch(path, { method: 'POST', body }); }
 async function bake() {
   const L = document.getElementById('src').contentWindow.__lump;
@@ -84,6 +113,7 @@ async function bake() {
       await post(`/png?name=${m}-${name}`, await new Promise(r => strip.toBlob(r, 'image/png')));
     }
   }
+  await post('/png?name=icon', await icon(L));
   await post('/done', JSON.stringify(manifest));
 }
 document.getElementById('src').addEventListener('load', () => bake().catch(e => post('/fail', String(e.stack || e))));
@@ -110,7 +140,8 @@ class H(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path); body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         if u.path == "/png":
-            with open(os.path.join(OUT, parse_qs(u.query)["name"][0] + ".png"), "wb") as f:
+            name = parse_qs(u.query)["name"][0]
+            with open(ICON if name == "icon" else os.path.join(OUT, name + ".png"), "wb") as f:
                 f.write(body)
         elif u.path == "/done":
             with open(os.path.join(OUT, "manifest.json"), "w") as f:

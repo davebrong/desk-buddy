@@ -4,7 +4,7 @@
 // plugged in and the desk Lump is online (the Mac can't sense distance, but the desk Lump sits by a
 // monitor, so "laptop on that monitor" is a good stand-in for "you're at your desk").
 // Right-click him to pick your desk monitor (default: any external display) or to show him all the time.
-// While he's hidden, open Lump again and he shows for a minute so you can reach that menu.
+// While he's hidden, open Lump again: he shows with his menu open, and hides again once it closes.
 // On a MacBook with a notch he sits in a little black wing just right of the camera.
 // With no notch screen he's a menu bar item instead.
 // No pop-outs, no text: notifications already do that. Right-click him for options.
@@ -17,7 +17,8 @@ import Cocoa
 
 let STATUS_URL = URL(string: "http://127.0.0.1:47823/status")!
 let DEFAULT_COLOUR = "FF7A45"
-let PEEK: TimeInterval = 60             // opening the app again shows him this long, even at the desk
+let PEEK: TimeInterval = 60             // opening the app shows him (menu open) at most this long, even at the desk
+let LINGER: TimeInterval = 2            // after that menu closes, he stays this long before hiding again
 let DEVICE_GRACE: TimeInterval = 60     // the desk Lump has to be gone this long before he counts as away (OTA, Wi-Fi blips)
 
 // MARK: - frames
@@ -125,7 +126,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var sprites: Sprites!
     var mood = "idle", colour = DEFAULT_COLOUR, online = false
     var deviceSeen = Date.distantPast, atDesk = false, placed = false
-    var tick = 0, shownKey = "", peekUntil = Date.distantPast
+    var tick = 0, shownKey = "", peekUntil = Date.distantPast, menuWhenPlaced = false
     var wing: NSPanel?, wingView: WingView?
     var item: NSStatusItem?
     let prefs = UserDefaults.standard
@@ -160,14 +161,31 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let poll = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.poll() }
         RunLoop.main.add(poll, forMode: .common)
         if !prefs.bool(forKey: "launchedBefore") {      // first launch: let a new user see where he lives
-            prefs.set(true, forKey: "launchedBefore"); peekUntil = Date().addingTimeInterval(PEEK)
+            prefs.set(true, forKey: "launchedBefore"); peekUntil = Date().addingTimeInterval(PEEK); menuWhenPlaced = true
         }
         poll.fire()
     }
 
-    /// Opening the app while it's running (Finder, Spotlight, `open`): show him for a minute, even at the desk.
+    /// Opening the app while it's running (Finder, Spotlight, `open`): show him with his menu open, even at the desk.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        peekUntil = Date().addingTimeInterval(PEEK); place(); return false
+        peekUntil = Date().addingTimeInterval(PEEK); place(); showMenu(); return false
+    }
+
+    /// Drop his menu down from wherever he is (after he's had a moment to appear).
+    func showMenu() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            NSApp.activate(ignoringOtherApps: true)
+            if let b = self.item?.button { b.performClick(nil) }
+            else if let v = self.wingView, self.wing?.isVisible == true {
+                self.theMenu.popUp(positioning: nil, at: NSPoint(x: v.bounds.maxX - v.bounds.height / 2, y: -4), in: v)
+            }
+        }
+    }
+    /// The menu closed: if he only came up because you opened the app, he can go again.
+    func menuDidClose(_ menu: NSMenu) {
+        guard Date() < peekUntil else { return }
+        peekUntil = Date().addingTimeInterval(LINGER)
+        DispatchQueue.main.asyncAfter(deadline: .now() + LINGER + 0.1) { if self.computeAtDesk() != self.atDesk { self.place() } }
     }
 
     // MARK: where he lives
@@ -273,7 +291,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func atDeskHint() -> String {
         if showAlways { return "Showing all the time" }
         let mon = deskDisplayConnected(), dev = Date().timeIntervalSince(deviceSeen) < DEVICE_GRACE
-        if mon && dev { return Date() < peekUntil ? "At your desk: hiding in a moment" : "At your desk" }
+        if mon && dev { return Date() < peekUntil ? "You're at your desk, so he hides when this closes" : "At your desk" }
         return !mon ? "Away: desk monitor not plugged in" : "Away: desk Lump is offline"
     }
     func popMenu(_ e: NSEvent, in v: NSView) { NSMenu.popUpContextMenu(theMenu, with: e, for: v) }
@@ -289,7 +307,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         URLSession.shared.dataTask(with: req) { data, _, _ in
             let j = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             DispatchQueue.main.async {
-                defer { if !self.placed || self.computeAtDesk() != self.atDesk { self.placed = true; self.place() } }
+                defer {
+                    if !self.placed || self.computeAtDesk() != self.atDesk { self.placed = true; self.place() }
+                    if self.menuWhenPlaced { self.menuWhenPlaced = false; self.showMenu() }
+                }
                 guard let j = j else { self.online = false; return }
                 self.online = true
                 if let m = j["mood"] as? String, self.sprites.manifest.moods[m] != nil, m != self.mood { self.mood = m; self.tick = 0 }
