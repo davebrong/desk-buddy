@@ -97,6 +97,26 @@ Sounds: `~/.desk-buddy/sounds.json` picks which moments make a noise (`"enabled"
 A second Claude Code config (such as `~/.claude-work`) can drive him too: run
 `python3 tools/install_hooks.py --config-dir ~/.claude-work`.
 
+### Lump on your Mac (for when you're away from the desk)
+
+A little Lump for your screen that mirrors the desk one. On a MacBook with a notch he sits in a small
+black wing beside the camera; otherwise he's a menu bar item. There's no pop-out and no text. He's
+just a reminder of what the desk Lump is doing.
+
+```bash
+python3 tools/lumpbar/bake.py      # shrink his drawings (needs Google Chrome; re-run after editing lump.html)
+zsh tools/lumpbar/build.sh         # builds ~/Applications/Lump.app and starts it
+```
+
+The Mac can't tell how far away you are, so it uses your monitor as a stand-in. While your **desk
+monitor** is plugged in and the desk Lump is online, you're "at your desk" and the Mac one hides. Right-click him to:
+
+- pick **My Desk Monitor**: the screen the desk Lump sits by (the default is any external display), or
+- show him **All the Time** (handy if you don't use a monitor, or if the desk Lump is by your laptop).
+
+The first time you open Lump.app he shows for a minute, even at your desk. Open it again any time he's
+hidden and he comes back for a minute, so you can always reach that menu. To start him at login, add Lump.app under System Settings › General › Login Items.
+
 ## Make him your own
 
 All of Lump is drawn in code in **`design/lump.html`**: his body, faces, moods, transitions and
@@ -130,6 +150,7 @@ calendar / Slack ──┘   one mood for all sessions                   plays b
 | `design/lump.html` | Lump himself: every drawing and animation |
 | `tools/buddy_bridge.py` | The bridge: Claude hooks, app state, usage, calendar, Slack, sounds → one mood |
 | `tools/appwatch/` | Swift helper that reads Chat/Cowork state from the Claude app's accessibility tree |
+| `tools/lumpbar/` | Lump on your Mac: frame baker (`bake.py`) and the notch/menu bar app (`main.swift`) |
 | `tools/flash.sh`, `tools/ota.py`, `tools/wifi_setup.py` | Getting firmware and drawings onto the board |
 | `enclosure/` | OpenSCAD source for the adjustable monitor mount, with [ready-to-print STLs](enclosure/print/) |
 | `tests/` | Bridge tests (no board needed): `~/.desk-buddy/venv/bin/python -m unittest discover -s tests` |

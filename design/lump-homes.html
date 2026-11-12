@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lump on the Mac</title>
+<style>
+  :root { --bg: #141317; --card: #1D1C22; --line: #2C2B33; --text: #EDE6DA; --dim: #9C968C; --tang: #FF7A45; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 28px 16px 80px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 17px; margin: 0 0 2px; }
+  p { margin: 4px 0 0; color: var(--dim); }
+  .lede { margin-bottom: 18px; }
+  .moods { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0; display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
+  .moods button { font: inherit; font-size: 13px; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; cursor: pointer; }
+  .moods button[aria-pressed="true"] { background: var(--tang); border-color: var(--tang); color: #1a0f0a; font-weight: 600; }
+  .moods .auto { margin-left: auto; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 18px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--tang); margin-bottom: 4px; }
+  .verdict { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: #26242C; color: var(--text); font-size: 13px; }
+  .verdict b { color: var(--tang); }
+
+  /* fake macOS bits */
+  .wall { position: relative; overflow: hidden; border-radius: 10px; background: radial-gradient(120% 140% at 15% 0%, #3C4C7A 0%, #2A2346 45%, #17121F 100%); }
+  .wall.light { background: radial-gradient(120% 140% at 80% 0%, #DCE6F5 0%, #B9C6E0 50%, #98A6C6 100%); }
+  .bar { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 13px; }
+  .bar.dark { height: 37px; background: rgba(18,18,22,.78); color: #F2F2F2; }
+  .bar.light { height: 24px; background: rgba(246,246,248,.82); color: #1d1d1f; }
+  .bar .l, .bar .r { display: flex; align-items: center; gap: 15px; white-space: nowrap; }
+  .bar .l b { font-weight: 700; }
+  .bar .r { gap: 12px; }
+  .bar svg { display: block; }
+  .bar .item { display: flex; align-items: center; gap: 5px; height: 100%; }
+  .bar .item canvas { display: block; }
+  .bar .word { font-size: 12px; font-weight: 600; color: var(--tang); }
+  .bar.light .word { color: #C2410C; }
+  .below { height: 26px; }
+  .hideNarrow { }
+  @media (max-width: 620px) { .hideNarrow { display: none; } }
+
+  .variant { display: grid; grid-template-columns: 1fr 190px; gap: 14px; align-items: start; margin-top: 14px; }
+  .variant .bars { display: grid; gap: 10px; }
+  .loupe { background: #0E0E11; border: 1px solid var(--line); border-radius: 10px; padding: 8px; text-align: center; }
+  .loupe canvas { image-rendering: pixelated; display: block; margin: 0 auto; }
+  .loupe small { display: block; color: var(--dim); font-size: 11px; margin-top: 4px; }
+  @media (max-width: 620px) { .variant { grid-template-columns: 1fr; } }
+
+  /* popover */
+  .popScene { position: relative; height: 470px; }
+  .popover { position: absolute; top: 44px; right: 120px; width: 300px; border-radius: 12px; background: rgba(36,35,42,.94); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 18px 50px rgba(0,0,0,.5); padding: 12px; color: #EEE; }
+  @media (max-width: 620px) { .popover { right: 8px; left: 8px; width: auto; } }
+  .popover .stage { position: relative; background: #000; border-radius: 10px; height: 170px; display: grid; place-items: center; }
+  .popover .chip { position: absolute; left: 8px; top: 8px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #2a2a2a; color: #ddd; }
+  .popover .chip.hot { background: var(--tang); color: #1a0f0a; }
+  .popover .ask { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 10px 2px 6px; font-size: 13px; }
+  .popover .ask button { font: inherit; font-size: 12px; background: var(--tang); color: #1a0f0a; border: 0; border-radius: 6px; padding: 3px 9px; font-weight: 600; }
+  .popover .rows { border-top: 1px solid rgba(255,255,255,.08); margin-top: 6px; padding-top: 6px; font-size: 12.5px; }
+  .popover .row { display: flex; align-items: center; gap: 8px; padding: 3px 2px; }
+  .popover .row i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+  .popover .row span:last-child { margin-left: auto; color: #999; }
+  .popover .gags { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; font-size: 17px; text-align: center; padding: 4px 0; }
+  .popover .foot { color: #8f8a83; font-size: 11.5px; margin-top: 4px; }
+
+  /* notch */
+  .notchScene { position: relative; height: 230px; }
+  .notchScene::after { content: ""; position: absolute; left: 50%; top: 0; transform: translateX(-50%); width: 190px; height: 33px; background: #000; border-radius: 0 0 12px 12px; }
+  .notchBar { position: absolute; inset: 0 0 auto 0; height: 37px; background: rgba(18,18,22,.78); display: flex; justify-content: space-between; align-items: center; padding: 0 12px; color: #EEE; font-size: 13px; }
+  .notch { position: absolute; left: 50%; top: 0; transform: translateX(-50%); width: 290px; height: 37px; clip-path: inset(0 0 0 50px); border-bottom-right-radius: 10px; background: #000; border-radius: 0 0 14px 14px; transition: width .45s cubic-bezier(.3,1.4,.5,1), height .45s cubic-bezier(.3,1.4,.5,1), border-radius .45s; overflow: hidden; }
+  .notch.open { width: 400px; height: 146px; border-radius: 0 0 28px 28px; }
+  @media (max-width: 620px) { .notch.open { width: calc(100% - 20px); } }
+  .notch canvas { position: absolute; }
+  .notch .msg { position: absolute; left: 132px; top: 62px; right: 16px; opacity: 0; transition: opacity .25s .2s; }
+  .notch.open .msg { opacity: 1; }
+  .cam { position: absolute; left: 50%; top: 0; transform: translateX(-50%); width: 190px; height: 33px; border: 1px dashed rgba(255,255,255,.16); border-top: 0; border-radius: 0 0 12px 12px; pointer-events: none; }
+  .cam::after { content: "camera notch"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 10px; color: rgba(255,255,255,.2); }
+  .notch .msg b { display: block; font-size: 15px; color: #fff; }
+  .notch .msg span { font-size: 12.5px; color: #9a958e; }
+
+  /* desktop pet */
+  .petScene { position: relative; height: 380px; }
+  .win { position: absolute; left: 7%; top: 60px; width: 58%; height: 210px; background: #24232A; border-radius: 10px; border: 1px solid rgba(255,255,255,.08); box-shadow: 0 20px 50px rgba(0,0,0,.45); }
+  .win::before { content: ""; position: absolute; left: 12px; top: 11px; width: 46px; height: 10px; background: radial-gradient(circle at 5px 5px, #ff5f57 4.5px, transparent 5px), radial-gradient(circle at 23px 5px, #febc2e 4.5px, transparent 5px), radial-gradient(circle at 41px 5px, #28c840 4.5px, transparent 5px); }
+  .win .lines { position: absolute; left: 18px; right: 18px; top: 44px; display: grid; gap: 9px; }
+  .win .lines div { height: 8px; border-radius: 4px; background: #34333C; }
+  .dock { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; padding: 7px 9px; border-radius: 18px; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(10px); }
+  .dock div { width: 40px; height: 40px; border-radius: 10px; }
+  .pet { position: absolute; cursor: pointer; }
+  .peek { position: absolute; right: 18px; bottom: -110px; transition: bottom .5s cubic-bezier(.3,1.3,.5,1); }
+  .peek.up { bottom: -4px; }
+  .twoUp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 620px) { .twoUp { grid-template-columns: 1fr; } }
+  .twoUp .wall { height: 230px; }
+  .cap { font-size: 12px; color: var(--dim); margin-top: 6px; }
+
+  .rules { margin: 8px 0 0; padding-left: 18px; color: var(--text); }
+  .rules li { margin: 4px 0; }
+  #src { position: absolute; width: 240px; height: 240px; left: -9999px; top: 0; border: 0; visibility: hidden; }
+</style>
+</head>
+<body>
+<iframe id="src" src="lump.html" title="Lump drawings (hidden source)" aria-hidden="true" tabindex="-1"></iframe>
+<main>
+  <h1>Lump on the Mac</h1>
+  <p class="lede">Where Lump could live when you're away from the desk. Every Lump here is the real drawing from <code>lump.html</code>, drawn at true size. Pick a mood to see it everywhere at once.</p>
+
+  <div class="moods" id="moods" role="group" aria-label="Mood"></div>
+
+  <section>
+    <span class="tag">1 · Menu bar</span>
+    <h2>Whole Lump, shrunk to fit <span style="color:var(--tang);font-size:12px">· chosen (when there’s no notch)</span></h2>
+    <p>The full drawing in a status item. Top bar is a MacBook with a notch (37 pt); bottom is a plain 24 pt bar. The magnifier shows the actual pixels on a Retina screen.</p>
+    <div class="variant">
+      <div class="bars">
+        <div class="wall"><div class="bar dark" data-variant="whole"></div><div class="below"></div></div>
+        <div class="wall light"><div class="bar light" data-variant="whole"></div><div class="below"></div></div>
+      </div>
+      <div class="loupe"><canvas data-loupe="whole"></canvas><small>notch bar, 4× zoom</small></div>
+    </div>
+
+    <h2 style="margin-top:22px">Peeking up from the bar</h2>
+    <p>Only his top half: cowlick, eyes, the top of his mouth, as if he's sitting behind the bar. Bigger face for the same height.</p>
+    <div class="variant">
+      <div class="bars">
+        <div class="wall"><div class="bar dark" data-variant="peek"></div><div class="below"></div></div>
+        <div class="wall light"><div class="bar light" data-variant="peek"></div><div class="below"></div></div>
+      </div>
+      <div class="loupe"><canvas data-loupe="peek"></canvas><small>notch bar, 4× zoom</small></div>
+    </div>
+
+    <h2 style="margin-top:22px">Peeking, plus a word when it matters</h2>
+    <p>Same peek, and a short word appears beside him only when something needs you.</p>
+    <div class="variant">
+      <div class="bars">
+        <div class="wall"><div class="bar dark" data-variant="words"></div><div class="below"></div></div>
+        <div class="wall light"><div class="bar light" data-variant="words"></div><div class="below"></div></div>
+      </div>
+      <div class="loupe"><canvas data-loupe="words"></canvas><small>notch bar, 4× zoom</small></div>
+    </div>
+    <div class="verdict" id="barVerdict"><b>Honest read:</b> at menu bar size Lump is a tiny orange blob with two dots. Mood comes through in his colour, his eyes and the way he moves, not in the props. The laptop and envelope turn to mush. The peek reads best, and the popover (next) is where he gets to be full size. One snag: in "Needs you" he squashes down between bounces, so in the peek he briefly ducks out of sight. The bar would want its own needs-you drawing that stays up.</div>
+  </section>
+
+  <section>
+    <span class="tag">2 · Click him</span>
+    <h2>A popover where he's full size</h2>
+    <p>Clicking the menu bar Lump drops a panel with him at full size on black, like the glass, plus what each Claude is doing and the gag buttons that are in Claude Switcher today. Sessions here are made up.</p>
+    <div class="wall popScene" style="margin-top:12px">
+      <div class="bar dark" data-variant="peek"></div>
+      <div class="popover" id="popover">
+        <div class="stage"><span class="chip" id="popChip">Asleep</span><canvas id="popCanvas"></canvas></div>
+        <div class="ask" id="popAsk"><span id="popAskText">All quiet</span><button type="button" id="popAskBtn" hidden>Open</button></div>
+        <div class="rows">
+          <div class="row"><i style="background:#FF7A45"></i><span>desk-buddy · Code</span><span id="r1">idle</span></div>
+          <div class="row"><i style="background:#7AA2FF"></i><span>Cowork</span><span>idle</span></div>
+          <div class="row"><i style="background:#9C968C"></i><span>Work account</span><span>idle</span></div>
+        </div>
+        <div class="rows"><div class="gags" aria-label="Gags"><span>⚡️</span><span>🔥</span><span>🐺</span><span>🪗</span><span>🧨</span><span>🪩</span><span>🍌</span><span>🎈</span><span>🤧</span><span>🌙</span><span>💣</span><span>🪟</span><span>📨</span><span>✈️</span></div></div>
+        <div class="foot" id="popFoot">Desk Lump: offline (you're away), so this one does the nudging.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="tag">3 · The notch</span>
+    <h2>Living in the notch <span style="color:var(--tang);font-size:12px">· chosen</span></h2>
+    <p>The notch is black, just like the prism glass, so Lump's cream-line art looks right with no changes. He sits in a little black wing just right of the camera, the whole shrunk-down drawing, in every mood. No pop-out and no text: notifications already do that job, he's just a reminder.</p>
+    <div class="wall notchScene" style="margin-top:12px">
+      <div class="notchBar"><span><b>Claude</b>&nbsp;&nbsp; File &nbsp; Edit &nbsp; View</span><span class="hideNarrow">Thu 12 Nov&nbsp; 9:41</span></div>
+      <div class="notch" id="notch"><canvas id="notchCanvas"></canvas><div class="msg"><b id="notchTitle">Claude's asking you something</b><span id="notchSub">desk-buddy · Code tab</span></div></div><div class="cam" aria-hidden="true"></div>
+    </div>
+    <div class="verdict"><b>Catch:</b> only MacBooks with a notch. On an external display or an older Mac, this falls back to the menu bar.</div>
+  </section>
+
+  <section>
+    <span class="tag">4 · On the desktop</span>
+    <h2>A little window that sits on the Dock</h2>
+    <p>A see-through, always-on-top window about 90 pt tall. He sits on the Dock's edge; click him and he waves. You can drag him anywhere.</p>
+    <div class="wall petScene" style="margin-top:12px" id="petScene">
+      <div class="bar dark" data-variant="none" style="height:24px"></div>
+      <div class="win"><div class="lines"><div style="width:70%"></div><div style="width:92%"></div><div style="width:55%"></div><div style="width:80%"></div><div style="width:40%"></div></div></div>
+      <div class="dock" id="dock"><div style="background:#E8E0D2"></div><div style="background:#4A90E2"></div><div style="background:#D97757"></div><div style="background:#34C759"></div><div style="background:#8E8E93"></div><div style="background:#FF9F0A"></div></div>
+      <canvas class="pet" id="pet" aria-label="Lump, click to say hello"></canvas>
+    </div>
+    <div class="twoUp">
+      <div>
+        <div class="wall" id="peekScene"><canvas class="peek" id="peekCanvas"></canvas></div>
+        <div class="cap">Variant: hidden until he's needed, then he peeks up from the bottom corner. Try "Needs you".</div>
+      </div>
+      <div>
+        <div class="wall light" style="display:grid;place-items:center"><canvas id="lightPet"></canvas></div>
+        <div class="cap">On a light wallpaper he switches to dark ink, like the paper version.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="tag">Which Lump is in charge</span>
+    <h2>Handing off between the desk and the laptop</h2>
+    <p>The bridge already knows enough to decide this on its own:</p>
+    <ul class="rules">
+      <li><b>At the desk</b> (the monitor Lump hangs off is plugged in and his heartbeat is fresh): the desk Lump nudges; the Mac one stays a quiet peek in the menu bar, no sounds.</li>
+      <li><b>Away</b> (laptop only, or desk Lump offline): the Mac Lump takes over: notch/peek alerts and the ocarina sounds.</li>
+      <li>Either way, both show the same mood, since they're fed by the same bridge.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+const MOODS = [['idle', 'Asleep'], ['working', 'Working'], ['alert', 'Needs you'], ['waiting', 'Waiting too long'], ['done', 'Done'], ['awake', 'Unread'], ['letter', 'VIP letter'], ['meeting', 'Meeting'], ['longhaul', 'Long haul'], ['night', 'Night']];
+const HOT = new Set(['alert', 'waiting', 'done', 'letter', 'meeting']);
+const WORD = { alert: 'needs you', waiting: 'still waiting', done: 'done', letter: 'letter', meeting: 'meeting' };
+const NOTCH_TXT = { alert: ["Claude's asking you something", 'desk-buddy · Code tab'], waiting: ['Still waiting on you', 'desk-buddy · 2 min'], done: ['Done!', 'desk-buddy finished · 4 min'], letter: ['A letter from someone important', 'Slack · unread'], meeting: ['Meeting in 1 minute', 'Design sync · Google Meet'] };
+const DPR = Math.max(2, window.devicePixelRatio || 1);
+let mood = 'idle', tick = 0, auto = false, autoAt = 0;
+
+/* ---------- moods bar ---------- */
+const moodsEl = document.getElementById('moods');
+const moodBtns = MOODS.map(([m, label]) => {
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+  b.addEventListener('click', () => { auto = false; autoBtn.setAttribute('aria-pressed', 'false'); setMood(m); });
+  moodsEl.appendChild(b); return [m, b];
+});
+const autoBtn = document.createElement('button'); autoBtn.type = 'button'; autoBtn.className = 'auto'; autoBtn.textContent = 'Play a day';
+autoBtn.addEventListener('click', () => { auto = !auto; autoBtn.setAttribute('aria-pressed', String(auto)); autoAt = 0; });
+moodsEl.appendChild(autoBtn);
+function setMood(m) { mood = m; moodBtns.forEach(([k, b]) => b.setAttribute('aria-pressed', String(k === m))); syncText(); }
+
+/* ---------- canvases ---------- */
+function sized(cv, w, h) { cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR); cv.style.width = w + 'px'; cv.style.height = h + 'px'; const c = cv.getContext('2d'); c.setTransform(DPR, 0, 0, DPR, 0, 0); c.imageSmoothingQuality = 'high'; return c; }
+
+// crops of the 240×240 drawing: [x, y, w, h]
+const CROP = { whole: [36, 30, 184, 184], peek: [56, 34, 144, 96] };
+// Each mood gets its own crop, fitted to everything drawn across its loop, so a lying-down Lump still fills the icon.
+const FIT = {};
+function fitCrops() {
+  MOODS.forEach(([m]) => {
+    let x0 = 240, y0 = 240, x1 = 0, y1 = 0;
+    L.LOOPS[m].forEach(([id], i) => {
+      frame(m, L.LOOPS[m].slice(0, i).reduce((s, [, h]) => s + h, 0), { noFX: true });   // fit to his body, not the sparks around him
+      const d = octx.getImageData(0, 0, 240, 240).data;
+      for (let y = 0; y < 240; y++) for (let x = 0; x < 240; x++) if (d[(y * 240 + x) * 4 + 3] > 40) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    });
+    const pad = 14, w = x1 - x0 + pad * 2, h = y1 - y0 + pad * 2, side = Math.max(w, h), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const pw = w, ph = pw / 1.5;                       // peek: same aspect as the item, from the top of his head down
+    FIT[m] = { whole: [cx - side / 2, cy - side / 2, side, side], peek: [cx - pw / 2, y0 - pad, pw, Math.min(ph, h)] };
+  });
+}
+const bars = [];
+const ICONS = `<svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor" aria-hidden="true"><path d="M8 11.5 5.6 9a3.4 3.4 0 0 1 4.8 0zM3.4 6.8a6.5 6.5 0 0 1 9.2 0l-1.1 1.1a5 5 0 0 0-7 0zM1.2 4.6a9.6 9.6 0 0 1 13.6 0l-1.1 1.1a8 8 0 0 0-11.4 0z"/></svg><svg width="24" height="12" viewBox="0 0 24 12" aria-hidden="true"><rect x=".5" y=".5" width="20" height="11" rx="3" fill="none" stroke="currentColor" opacity=".5"/><rect x="2" y="2" width="14" height="8" rx="1.6" fill="currentColor"/><rect x="21.5" y="4" width="1.6" height="4" rx=".8" fill="currentColor" opacity=".5"/></svg>`;
+document.querySelectorAll('.bar[data-variant]').forEach(bar => {
+  const v = bar.dataset.variant, dark = bar.classList.contains('dark'), H = parseFloat(getComputedStyle(bar).height);
+  bar.innerHTML = `<div class="l"><b>Claude</b><span>File</span><span>Edit</span><span class="hideNarrow">View</span><span class="hideNarrow">Window</span></div><div class="r">${v === 'none' ? '' : '<div class="item"><canvas></canvas><span class="word"></span></div>'}<span aria-hidden="true">⚾️</span>${ICONS}<span class="hideNarrow">Thu 12 Nov&nbsp; 9:41</span></div>`;
+  if (v === 'none') return;
+  const cv = bar.querySelector('canvas');
+  // whole: fits the bar with 2pt to spare; peek: fills the bar, cut off by its bottom edge
+  const h = v === 'whole' ? H - 3 : H, w = v === 'whole' ? h : Math.round(h * CROP.peek[2] / CROP.peek[3]);
+  bars.push({ v, dark, cv, c: sized(cv, w, h), w, h, word: bar.querySelector('.word') });
+});
+const loupes = [...document.querySelectorAll('[data-loupe]')].map(cv => {
+  const src = bars.find(b => b.v === cv.dataset.loupe && b.dark);
+  cv.width = src.cv.width * 4; cv.height = src.cv.height * 4; cv.style.width = Math.min(170, src.cv.width * 2) + 'px'; cv.style.height = 'auto';
+  const c = cv.getContext('2d'); c.imageSmoothingEnabled = false; return { c, src, cv };
+});
+const popC = sized(document.getElementById('popCanvas'), 170, 170);
+const notchCv = document.getElementById('notchCanvas'), notchC = sized(notchCv, 400, 146);
+const petCv = document.getElementById('pet'), petC = sized(petCv, 96, 96);
+const peekCv = document.getElementById('peekCanvas'), peekC = sized(peekCv, 120, 80);
+const lightC = sized(document.getElementById('lightPet'), 120, 120);
+let petClip = null;
+petCv.addEventListener('click', () => { petClip = { t: 0 }; });
+
+function placePet() {
+  const scene = document.getElementById('petScene'), dock = document.getElementById('dock');
+  const s = scene.getBoundingClientRect(), d = dock.getBoundingClientRect();
+  petCv.style.left = (d.right - s.left - 70) + 'px'; petCv.style.top = (d.top - s.top - 96 + 12) + 'px';
+}
+addEventListener('resize', placePet);
+
+/* ---------- drawing with lump.html's own renderer ---------- */
+let L = null;
+const off = document.createElement('canvas'); off.width = off.height = 240;
+const octx = off.getContext('2d');
+// Wrap the context so render() skips its background (and optionally the floor shadow, its first fill).
+function wrap(noShadow) {
+  let fills = 0;
+  return new Proxy(octx, {
+    get(t, p) {
+      if (p === 'fillRect') return (x, y, w, h) => { if (x === 0 && y === 0 && w === 240 && h === 240) return; t.fillRect(x, y, w, h); };
+      if (p === 'fill') return (...a) => { if (fills++ === 0 && noShadow) return; t.fill(...a); };
+      const v = t[p]; return typeof v === 'function' ? v.bind(t) : v;
+    },
+    set(t, p, v) { t[p] = v; return true; }
+  });
+}
+function frame(m, t, { ink = 'glow', shadow = false, clip = null, noFX = false } = {}) {
+  octx.setTransform(1, 0, 0, 1, 0, 0); octx.clearRect(0, 0, 240, 240);
+  L.setLine(ink);
+  if (clip) { const a = L.atSeq(clip, t); L.render(wrap(!shadow), L.fxFor(a.id), a.id, t); }
+  else { const a = L.at(m, t); L.render(wrap(!shadow), m, a.id, t, { noFX }); }
+  L.setLine('glow');
+  return off;
+}
+function blit(c, crop, x, y, w, h) { const [sx, sy, sw, sh] = crop; c.drawImage(off, sx, sy, sw, sh, x, y, w, h); }
+
+function syncText() {
+  const hot = HOT.has(mood), label = MOODS.find(([m]) => m === mood)[1];
+  bars.forEach(b => { if (b.v === 'words') b.word.textContent = WORD[mood] || ''; });
+  const chip = document.getElementById('popChip'); chip.textContent = label; chip.classList.toggle('hot', hot);
+  document.getElementById('popAskText').textContent = hot ? (NOTCH_TXT[mood][0]) : mood === 'working' || mood === 'longhaul' ? 'desk-buddy is working…' : 'All quiet';
+  document.getElementById('popAskBtn').hidden = !hot;
+  document.getElementById('r1').textContent = { idle: 'idle', night: 'idle', working: 'working 3m', longhaul: 'working 14m', alert: 'asking you', waiting: 'asking you · 2m', done: 'done', awake: 'done, unread' }[mood] || 'idle';
+  
+  if (hot) { document.getElementById('notchTitle').textContent = NOTCH_TXT[mood][0]; document.getElementById('notchSub').textContent = NOTCH_TXT[mood][1]; }
+  document.getElementById('peekCanvas').classList.toggle('up', hot);
+}
+
+function draw() {
+  bars.forEach(b => {
+    b.c.clearRect(0, 0, b.w, b.h);
+    frame(mood, tick, { ink: b.dark ? 'glow' : 'paper' });
+    const cr = FIT[mood][b.v === 'whole' ? 'whole' : 'peek'], ph = b.v === 'whole' ? b.h : b.w * cr[3] / cr[2];
+    blit(b.c, cr, 0, b.h - ph, b.w, ph);
+  });
+  loupes.forEach(l => { l.c.clearRect(0, 0, l.cv.width, l.cv.height); l.c.fillStyle = '#121216'; l.c.fillRect(0, 0, l.cv.width, l.cv.height); l.c.drawImage(l.src.cv, 0, 0, l.cv.width, l.cv.height); });
+
+  popC.clearRect(0, 0, 170, 170); frame(mood, tick, { shadow: true }); blit(popC, [20, 20, 220, 220], 0, 0, 170, 170);
+
+  notchC.clearRect(0, 0, 400, 146);
+  frame(mood, tick);
+  blit(notchC, FIT[mood].whole, 290 - 44, 2, 34, 34);   // always the same small wing right of the camera, whatever the mood
+
+  // desktop pet: plays its own hello clip when clicked, otherwise follows the mood
+  let clip = null, t = tick;
+  if (petClip) { if (petClip.t >= L.seqLen('hello')) petClip = null; else { clip = 'hello'; t = petClip.t++; } }
+  petC.clearRect(0, 0, 96, 96); frame(mood, t, { clip }); blit(petC, clip ? CROP.whole : FIT[mood].whole, 0, 0, 96, 96);
+  peekC.clearRect(0, 0, 120, 80); frame(mood, tick); { const cr = FIT[mood].peek, h = 120 * cr[3] / cr[2]; blit(peekC, cr, 0, 80 - h, 120, h); }
+  lightC.clearRect(0, 0, 120, 120); frame(mood, tick, { ink: 'paper' }); blit(lightC, FIT[mood].whole, 0, 0, 120, 120);
+}
+
+let acc = 0, last = 0;
+function loop(now) {
+  requestAnimationFrame(loop);
+  acc += Math.min(0.1, (now - (last || now)) / 1000); last = now;
+  let stepped = false;
+  while (acc >= 1 / 24) { acc -= 1 / 24; tick++; stepped = true; }
+  if (auto && now > autoAt) { const i = MOODS.findIndex(([m]) => m === mood); setMood(MOODS[(i + 1) % MOODS.length][0]); autoAt = now + 4000; }
+  if (stepped) draw();
+}
+
+// lump.html hands out its renderer as window.__lump (the same hook tools/export_frames.py bakes from).
+const srcFrame = document.getElementById('src');
+function boot() { if (L || !srcFrame.contentWindow.__lump) return; L = srcFrame.contentWindow.__lump; fitCrops(); setMood('idle'); placePet(); requestAnimationFrame(loop); }
+srcFrame.addEventListener('load', boot); boot();
+</script>
+</body>
+</html>
