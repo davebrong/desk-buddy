@@ -46,11 +46,26 @@ cat > "$PLIST" <<EOF
 EOF
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
-# Build the app watcher. Only replace the installed binary when it changed: a new build has a
-# new signature, and macOS would then ask for the Accessibility permission again.
+# Build the app watcher. macOS ties its Accessibility permission to the signature. If Claude Switcher's
+# local signing certificate exists (its build.sh makes one), sign with that: every build then keeps the
+# permission. Otherwise it's an ad hoc signature, which changes with every build, so the installed
+# binary is only replaced when the program changed (and you re-allow it in Accessibility).
 NEW="$RT/deskbuddy-appwatch.new"
 swiftc -O -swift-version 5 "$ROOT/tools/appwatch/main.swift" -o "$NEW"
-if cmp -s "$NEW" "$RT/deskbuddy-appwatch"; then rm -f "$NEW"; else mv "$NEW" "$RT/deskbuddy-appwatch"; fi
+SIGNING="$HOME/Library/Application Support/Claude Switcher Signing"
+if [ -f "$SIGNING/signing.keychain-db" ] && [ -f "$SIGNING/password" ]; then
+  KC="$SIGNING/signing.keychain-db"
+  security unlock-keychain -p "$(cat "$SIGNING/password")" "$KC"
+  ID="$(security find-certificate -c "Claude Switcher Local" -Z "$KC" | awk '/SHA-1/ {print $NF}')"
+  # codesign only finds an identity in a keychain on the search list: add it just while signing
+  OLD_LIST=()
+  while IFS= read -r k; do OLD_LIST+=("$k"); done < <(security list-keychains -d user | sed -E 's/^ *"(.*)"$/\1/')
+  security list-keychains -d user -s "${OLD_LIST[@]}" "$KC"
+  SIGNED=0; codesign --force --sign "$ID" --identifier "$WLABEL" "$NEW" && SIGNED=1
+  security list-keychains -d user -s "${OLD_LIST[@]}"
+  [ "$SIGNED" = 1 ] || { echo "signing the app watcher failed"; exit 1; }
+  mv "$NEW" "$RT/deskbuddy-appwatch"
+elif cmp -s "$NEW" "$RT/deskbuddy-appwatch"; then rm -f "$NEW"; else mv "$NEW" "$RT/deskbuddy-appwatch"; fi
 cat > "$WPLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

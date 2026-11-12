@@ -19,6 +19,11 @@ time you start a session after a long break. The board itself handles escalation
 Chat and Cowork have no hooks, so a small helper (tools/appwatch, its own login
 item) reads the Claude app's accessibility tree and posts page states to /app.
 
+Two Claude accounts (personal and work) can run side by side: Claude Switcher starts each as its own
+copy of the app, the work one with its own data folder (Claude-Work) and Claude Code settings
+(~/.claude-work, which has the same hooks and status line). Both feed the same mood, and the usage
+colour follows whichever account is closer to a limit. See account_of_config.
+
 Slack (class SlackWatch, with your own read-only user token in config.json): an unread DM from one
 of your VIPs makes him hold up a letter until Slack says you've read it (or half an hour passes);
 any other DM, or a message that @-mentions you, sends a paper plane looping round him, once.
@@ -297,31 +302,104 @@ class Calendar:
         log.info("calendar: %d upcoming meetings", len(out))
 
 
+# ---- Claude accounts ----
+# Claude Switcher runs each account as its own copy of the Claude app: personal with the default
+# folders, any other with --user-data-dir=~/Library/Application Support/Claude-<Name> and
+# CLAUDE_CONFIG_DIR=~/.claude-<name>. Personal is the plain default everywhere in the bridge; another
+# account's Chat/Cowork sessions are "app:<account>:<name>" and its usage keys "<account>:five_hour".
+PERSONAL = "personal"
+APP_SUPPORT = os.path.expanduser("~/Library/Application Support")
+
+
+def account_of_config(path):
+    """The account behind a Claude Code path, e.g. a hook's transcript_path (~/.claude-work/... -> work)."""
+    m = re.search(r"/\.claude-([^/]+)/", path or "")
+    return m.group(1).lower() if m else PERSONAL
+
+
+def account_of_data_dir(path):
+    """The account behind a Claude app data folder (.../Application Support/Claude-Work -> work)."""
+    name = os.path.basename((path or "").rstrip("/"))
+    return name[len("Claude-"):].lower() if name.startswith("Claude-") else PERSONAL
+
+
+def account_of_pid(pid):
+    """Which account a running copy of the Claude app belongs to (from its --user-data-dir)."""
+    try:
+        cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=2).stdout
+    except Exception:
+        return None
+    m = re.search(r"--user-data-dir=(.+?)(?= --|$)", cmd.strip())
+    return account_of_data_dir(m.group(1)) if m else PERSONAL
+
+
 class Focus:
     """What you're looking at: whether the Claude app is in front, and which Code session it shows.
 
     The desktop app logs "LocalSessions.setFocusedSession: sessionId=local_…" whenever you switch
     Code sessions, and keeps a small file per session (claude-code-sessions/…/local_….json) whose
     cliSessionId is the session_id the hooks report. Chat/Cowork pages on screen come from the
-    app watcher instead (AppPages.visible)."""
+    app watcher instead (AppPages.visible).
+
+    With two accounts running, both copies of the app write to the same log. A session id says
+    which copy it came from (its file is in that copy's data folder); "null" (no Code session
+    showing) doesn't, so it's put down to the copy in front, or the one that was in front last."""
 
     LOGS = os.path.expanduser("~/Library/Logs/Claude")
-    SESSIONS = os.path.expanduser("~/Library/Application Support/Claude/claude-code-sessions")
+    SUPPORT = APP_SUPPORT                 # Claude/ (personal), Claude-Work/ ... each with claude-code-sessions/
     FOCUS_RE = re.compile(r"setFocusedSession: sessionId=(local_[0-9a-f-]+|null)")
 
-    def __init__(self):
-        self.code_session, self.front, self._log, self._pos, self._map = None, False, None, 0, {}
-        threading.Thread(target=self._run, daemon=True).start()
+    def __init__(self, start=True):
+        self.front, self._log, self._pos, self._map = False, None, 0, {}
+        self.account, self.last_account = None, PERSONAL   # the Claude copy in front (None: none is), and the last one that was
+        self.focused = {}                                 # account -> cli session id showing in that copy's Code tab
+        self._pids = {}
+        if start:
+            threading.Thread(target=self._run, daemon=True).start()
+
+    @property
+    def code_session(self):
+        """The Code session showing in the Claude copy in front (or the one in front last)."""
+        return self.focused.get(self.account or self.last_account)
 
     def _cli_id(self, local):
+        """(account, cliSessionId) for a desktop Code session; misses aren't cached (the file may come later)."""
         if local not in self._map:
-            files = glob.glob(os.path.join(self.SESSIONS, "*", "*", local + ".json"))
-            try: self._map[local] = json.load(open(files[0])).get("cliSessionId") if files else None
-            except Exception: self._map[local] = None
+            files = glob.glob(os.path.join(glob.escape(self.SUPPORT), "Claude*", "claude-code-sessions", "*", "*", local + ".json"))
+            if not files:
+                return None, None
+            path = files[0]
+            acct = account_of_data_dir(path[:path.index(os.sep + "claude-code-sessions" + os.sep)])
+            try:
+                with open(path) as f: self._map[local] = (acct, json.load(f).get("cliSessionId"))
+            except Exception: return acct, None
         return self._map[local]
 
     def _apply(self, local):
-        self.code_session = None if local == "null" else self._cli_id(local)
+        if local == "null":
+            self.focused[self.account or self.last_account] = None
+            return
+        acct, cli = self._cli_id(local)
+        self.focused[acct or self.account or self.last_account] = cli
+
+    def set_front(self, account):
+        """account: the Claude copy now in front, or None when another app is."""
+        self.front, self.account = account is not None, account
+        if account:
+            self.last_account = account
+
+    def _front_account(self, info):
+        """From `lsappinfo info -only bundleid -only pid` output: the Claude copy in front, or None."""
+        if "com.anthropic.claudefordesktop" not in info:
+            return None
+        m = re.search(r'"pid"=(\d+)', info)
+        if not m:
+            return PERSONAL
+        pid = int(m.group(1))
+        if pid not in self._pids:
+            if len(self._pids) > 50: self._pids.clear()
+            self._pids[pid] = account_of_pid(pid)
+        return self._pids[pid] or PERSONAL
 
     def _poll_log(self):
         logs = sorted(glob.glob(os.path.join(self.LOGS, "main*.log")), key=os.path.getmtime)
@@ -346,9 +424,9 @@ class Focus:
         import subprocess
         while True:
             try:
-                front = subprocess.run(["lsappinfo", "info", "-only", "bundleid", subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()],
-                                       capture_output=True, text=True, timeout=2).stdout
-                self.front = "com.anthropic.claudefordesktop" in front
+                info = subprocess.run(["lsappinfo", "info", "-only", "bundleid", "-only", "pid", subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()],
+                                      capture_output=True, text=True, timeout=2).stdout
+                self.set_front(self._front_account(info))
                 self._poll_log()
             except Exception as e:
                 log.info("focus check failed: %s", e)
@@ -563,6 +641,8 @@ class Buddy:
             fresh = now - self.last_event > HELLO_AFTER
             self.last_event = now
             s = self.sessions.setdefault(sid, {"state": "idle", "t": now, "cwd": p.get("cwd", "")})
+            if p.get("transcript_path"):
+                s["account"] = account_of_config(p["transcript_path"])
             state = None
             if ev == "SessionStart":
                 state = "idle"
@@ -602,19 +682,20 @@ class Buddy:
                     self.last_oops = now
                 else:
                     event = None
-            log.info("hook %s %s -> %s", ev, sid[:8], state or "-")
+            log.info("hook %s %s%s -> %s", ev, sid[:8], "" if s.get("account", PERSONAL) == PERSONAL else " (%s)" % s["account"], state or "-")
         if event:
             self.event(event)
             self.sound({"hello": "hello", "oops": "uh_oh"}[event])
         self.update()
 
-    def external(self, sid, state, stale=None):
+    def external(self, sid, state, stale=None, account=PERSONAL):
         """State from a non-hook source (the app watcher for Chat and Cowork)."""
         now = time.time()
         with self.lock:
             fresh = now - self.last_event > HELLO_AFTER
             self.last_event = now
             s = self.sessions.setdefault(sid, {"state": "idle", "t": now, "cwd": ""})
+            s["account"] = account
             if state in ("working", "alert") and s.get("state") == "done":
                 s.pop("unseen", None)           # a new message in that conversation: result seen
             if state == "working" and s.get("state") in ("idle", "done"):
@@ -748,7 +829,7 @@ class Buddy:
         if sid is None: return False
         if sid.startswith("app:"):
             app = getattr(self, "app", None)
-            return bool(app) and sid[4:] in app.visible
+            return bool(app) and app.showing(sid[4:], getattr(self.focus, "account", None))
         return sid == self.focus.code_session
 
     def clear_seen_locked(self):
@@ -871,12 +952,14 @@ class Buddy:
                 return meeting_blend(base, round((1 - until / MEETING_LEAD) * 40) / 40)
         return base
 
-    def set_usage(self, rl, source="statusline"):
-        """Usage readings from the Claude Code status line, or the Claude app's usage ring."""
+    def set_usage(self, rl, source="statusline", account=PERSONAL):
+        """Usage readings from the Claude Code status line, or the Claude app's usage ring. Each account
+        has its own limits (keys "five_hour", "work:five_hour", ...); the colour follows the busiest."""
         changed = False
         with self.lock:
-            for key in ("five_hour", "seven_day"):
-                w = (rl or {}).get(key)
+            for window in ("five_hour", "seven_day"):
+                key = window if account == PERSONAL else f"{account}:{window}"
+                w = (rl or {}).get(window)
                 if isinstance(w, dict) and w.get("used_percentage") is not None:
                     old = self.usage.get(key, {})
                     resets = w.get("resets_at") or (old.get("resets") if source == "app" else None)
@@ -955,12 +1038,13 @@ class Buddy:
                     "colour": self.colour(now), "usage": self.usage,
                     "sound": bool(self.sounds.settings().get("enabled")),
                     "next_meeting": self.next_meeting(now),
-                    "focus": {"claude_in_front": self.focus.front, "code_session": (self.focus.code_session or "")[:8],
+                    "focus": {"claude_in_front": self.focus.front, "account": getattr(self.focus, "account", None), "code_session": (self.focus.code_session or "")[:8],
                               "app_pages": sorted(getattr(getattr(self, "app", None), "visible", []))},
                     "app_watcher": None if not app or not app.seen else {"trusted": app.trusted, "last_report_s": int(now - app.seen)},
                     "slack": {"letters": {v.get("from"): int(now - v["since"]) for v in self.letters_locked(now).values()},
                               "watch": getattr(getattr(self, "slack", None), "status", None)},
-                    "sessions": {(k if k.startswith("app:") else k[:8]): {"state": v["state"], "age_s": int(now - v["t"]), "cwd": v["cwd"]} for k, v in self.sessions.items()}}
+                    "sessions": {(k if k.startswith("app:") else k[:8]): {"state": v["state"], "age_s": int(now - v["t"]), "cwd": v["cwd"],
+                                                                          "account": v.get("account", PERSONAL)} for k, v in self.sessions.items()}}
 
 
 class AppPages:
@@ -968,8 +1052,13 @@ class AppPages:
     labels read from the Claude app's accessibility tree. The rules for turning those labels into
     moods live here, so they can be tuned without rebuilding (and re-permitting) the helper.
 
-    Each conversation becomes a session "app:<name>". Sidebar status badges cover conversations
-    that aren't on screen; a page that leaves the screen while working gets a short expiry."""
+    Each conversation becomes a session "app:<name>" ("app:work:<name>" in the work account's copy).
+    Sidebar status badges cover conversations that aren't on screen; a page that leaves the screen
+    while working gets a short expiry.
+
+    The helper reports {"trusted", "copies": [{"account", "pages", "sidebar", "tabs", "labels"}, ...]},
+    one entry per running copy of the app. (An older helper sent one copy's fields at the top level:
+    that's read as the personal copy.) A copy that stops being reported (quit) counts as empty."""
 
     APP_STALE = 3 * 60
     # Claude's own "Stop response" button. Not a bare "Stop": web pages open in the app (like the gag
@@ -983,8 +1072,18 @@ class AppPages:
     NEEDS_TEXT = re.compile(r"asking a question|awaiting (answer|approval|permission|response)|needs (approval|permission|an answer)|approval needed|waiting for (your )?(approval|answer|permission)", re.I)
 
     def __init__(self, buddy):
-        self.buddy, self.last, self.trusted, self.seen, self.tabs = buddy, {}, None, 0.0, []
-        self.visible = set()                        # conversation names currently on screen
+        self.buddy, self.trusted, self.seen = buddy, None, 0.0
+        self.last, self.tabs, self.on_screen = {}, {}, {}   # per account: page states, mode tabs, names on screen
+
+    @property
+    def visible(self):
+        """Conversations on screen in any copy, as their session names without "app:"."""
+        return {n for names in self.on_screen.values() for n in names}
+
+    def showing(self, key, front_account=None):
+        """Is conversation `key` (a session id without "app:") on screen in the copy that's in front?
+        With front_account None (not known) any copy counts."""
+        return any(key in names and front_account in (None, acct) for acct, names in self.on_screen.items())
 
     @staticmethod
     def name(title):
@@ -995,16 +1094,31 @@ class AppPages:
         if snap.get("trusted") != self.trusted:
             self.trusted = snap.get("trusted")
             log.info("app watcher %s", "has Accessibility permission" if self.trusted else "is waiting for Accessibility permission")
-        if (snap.get("tabs") or []) != self.tabs:  # logged to learn what the mode tabs announce
-            self.tabs = snap.get("tabs") or []
-            log.info("app tabs: %s", " | ".join(self.tabs))
-        self.visible = {self.name(t) for t in (snap.get("pages") or {})}
+        copies = snap.get("copies")
+        if copies is None:                          # an older helper: one copy, at the top level
+            copies = [dict(snap, account=PERSONAL)]
+        by = {}
+        for c in copies:
+            if isinstance(c, dict):
+                by[(c.get("account") or PERSONAL).lower()] = c
+        for acct in sorted(set(by) | set(self.last)):
+            self.copy(acct, by.get(acct, {}))
+
+    def copy(self, acct, snap):
+        """One copy of the app (one account)."""
+        prefix = "" if acct == PERSONAL else acct + ":"
+        last = self.last.setdefault(acct, {})
+        tabs = snap.get("tabs") or []
+        if tabs != self.tabs.get(acct, []):        # logged to learn what the mode tabs announce
+            self.tabs[acct] = tabs
+            log.info("app tabs%s: %s", "" if acct == PERSONAL else " (%s)" % acct, " | ".join(tabs))
+        self.on_screen[acct] = {prefix + self.name(t) for t in (snap.get("pages") or {})}
         # usage ring in the app, e.g. "Usage: Weekly · all models: 25%, Resets Mon 8:00 AM"
         for lab in snap.get("labels") or []:
             m = self.USAGE_LABEL.match(lab)
             if m:
                 key = "seven_day" if re.search(r"week", m.group(1), re.I) else "five_hour"
-                self.buddy.set_usage({key: {"used_percentage": float(m.group(2)), "resets_at": None}}, source="app")
+                self.buddy.set_usage({key: {"used_percentage": float(m.group(2)), "resets_at": None}}, source="app", account=acct)
         states = {}
         def bump(name, st):
             rank = {"working": 1, "alert": 2}
@@ -1033,22 +1147,22 @@ class AppPages:
             if self.NEEDS_TEXT.search(st): bump(n, "alert")
             elif self.WORK_STATUS.match(st): bump(n, "working")
         for n, state in states.items():
-            prev = self.last.get(n)
+            prev = last.get(n)
             if state != prev:
                 if state:
-                    self.buddy.external("app:" + n, state)
+                    self.buddy.external("app:" + prefix + n, state, account=acct)
                 elif prev in ("working", "alert"):
-                    self.buddy.external("app:" + n, "done")
-                self.last[n] = state
-        for n in [x for x in self.last if x not in states]:    # no longer on screen or in the sidebar
+                    self.buddy.external("app:" + prefix + n, "done", account=acct)
+                last[n] = state
+        for n in [x for x in last if x not in states]:    # no longer on screen or in the sidebar
             # A conversation that still needs you keeps its sidebar badge, so if it vanished
             # entirely it was answered elsewhere, closed or deleted: drop it. Work in progress
             # we simply can't see any more gets a short grace period instead.
-            if self.last[n] == "working":
-                self.buddy.external("app:" + n, "working", stale=self.APP_STALE)
+            if last[n] == "working":
+                self.buddy.external("app:" + prefix + n, "working", stale=self.APP_STALE, account=acct)
             else:
-                self.buddy.forget("app:" + n)
-            del self.last[n]
+                self.buddy.forget("app:" + prefix + n)
+            del last[n]
 
 
 class SlackError(Exception):
@@ -1262,7 +1376,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e: log.info("bad app snapshot: %s", e)
         elif self.path == "/usage":               # from tools/statusline.sh (status line JSON)
             self._reply(204)
-            try: buddy.set_usage((json.loads(body or b"{}") or {}).get("rate_limits"))
+            try:
+                p = json.loads(body or b"{}") or {}
+                buddy.set_usage(p.get("rate_limits"), account=account_of_config(p.get("transcript_path")))
             except Exception as e: log.info("bad usage payload: %s", e)
         elif self.path == "/calendar":            # re-read the calendar now
             buddy.calendar.refresh_now(); self._reply(200, b"refreshing")

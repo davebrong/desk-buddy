@@ -500,5 +500,124 @@ class SlackTest(BridgeTest):
         self.assertNotIn("secret words", text)
 
 
+WORK_TRANSCRIPT = "/Users/me/.claude-work/projects/-x/abc.jsonl"
+
+
+class TwoAccounts(BridgeTest):
+    """Personal and work Claude accounts running side by side (Claude Switcher)."""
+    def copy(self, account, title=None, buttons=(), sidebar=()):
+        c = {"account": account, "pages": {}, "sidebar": [{"row": r, "status": st} for r, st in sidebar], "tabs": [], "labels": []}
+        if title: c["pages"][title] = {"buttons": list(buttons), "statuses": [], "markers": []}
+        return c
+
+    def setUp(self):
+        super().setUp()
+        self.pages = bridge.AppPages(self.b)
+        self.b.app = self.pages
+
+    def test_accounts_from_paths(self):
+        self.assertEqual(bridge.account_of_config(WORK_TRANSCRIPT), "work")
+        self.assertEqual(bridge.account_of_config("/Users/me/.claude/projects/-x/abc.jsonl"), "personal")
+        self.assertEqual(bridge.account_of_config(None), "personal")
+        self.assertEqual(bridge.account_of_data_dir("/Users/me/Library/Application Support/Claude-Work"), "work")
+        self.assertEqual(bridge.account_of_data_dir("/Users/me/Library/Application Support/Claude"), "personal")
+
+    def test_a_work_code_session_drives_lump(self):
+        self.hook("UserPromptSubmit", "work1", transcript_path=WORK_TRANSCRIPT)
+        self.assertEqual(self.mood(), "working")
+        self.hook("PermissionRequest", "work1", transcript_path=WORK_TRANSCRIPT)
+        self.assertEqual(self.mood(), "alert")
+        self.hook("PostToolUse", "work1", transcript_path=WORK_TRANSCRIPT)
+        self.hook("Stop", "work1", transcript_path=WORK_TRANSCRIPT)
+        self.assertEqual(self.mood(), "done")
+        self.assertEqual(self.b.status()["sessions"]["work1"]["account"], "work")
+
+    def test_needs_you_in_either_account_wins(self):
+        self.hook("UserPromptSubmit", "mine", transcript_path="/Users/me/.claude/projects/-x/m.jsonl")
+        self.hook("PermissionRequest", "work1", transcript_path=WORK_TRANSCRIPT)
+        self.assertEqual(self.mood(), "alert")
+        self.assertEqual(self.b.status()["sessions"]["mine"]["account"], "personal")
+
+    def test_usage_colour_follows_the_busier_account(self):
+        self.b.set_usage({"five_hour": {"used_percentage": 30, "resets_at": NOON + 3600}})
+        self.b.set_usage({"five_hour": {"used_percentage": 85, "resets_at": NOON + 3600}}, account="work")
+        self.assertEqual(self.b.usage["five_hour"]["pct"], 30)
+        self.assertEqual(self.b.usage["work:five_hour"]["pct"], 85)
+        self.assertAlmostEqual(self.b.usage_frac(NOON), 0.85)
+
+    def test_each_copy_of_the_app_has_its_own_chats(self):
+        self.pages.snapshot({"trusted": True, "copies": [self.copy("personal", "Plans - Claude"),
+                                                         self.copy("work", "Plans - Claude", buttons=["Stop response"])]})
+        self.assertEqual(self.b.sessions["app:work:Plans"]["state"], "working")
+        self.assertEqual(self.b.sessions["app:work:Plans"]["account"], "work")
+        self.assertNotIn("app:Plans", self.b.sessions)
+        self.assertEqual(self.mood(), "working")
+        # the work copy quits: its conversation gets the short grace, the personal copy is untouched
+        self.pages.snapshot({"trusted": True, "copies": [self.copy("personal", "Plans - Claude")]})
+        self.assertEqual(self.b.sessions["app:work:Plans"]["stale"], bridge.AppPages.APP_STALE)
+
+    def test_work_cowork_needing_you_from_the_sidebar(self):
+        self.pages.snapshot({"trusted": True, "copies": [self.copy("work", sidebar=[("Quarterly deck", "Awaiting answer")])]})
+        self.assertEqual(self.mood(), "alert")
+
+    def test_an_older_helper_is_read_as_the_personal_copy(self):
+        self.pages.snapshot({"trusted": True, "pages": {"Plans - Claude": {"buttons": ["Stop response"], "statuses": [], "markers": []}}})
+        self.assertEqual(self.b.sessions["app:Plans"]["state"], "working")
+
+    def test_a_chat_only_counts_as_seen_in_the_copy_in_front(self):
+        self.pages.snapshot({"trusted": True, "copies": [self.copy("work", "Plans - Claude", buttons=["Stop response"])]})
+        self.b.focus.front = True
+        self.b.focus.account = "personal"                 # the work window is behind the personal one
+        self.pages.snapshot({"trusted": True, "copies": [self.copy("work", "Plans - Claude")]})
+        self.assertTrue(self.b.sessions["app:work:Plans"].get("unseen"))
+        self.assertTrue(self.pages.showing("work:Plans", "work"))
+        self.assertFalse(self.pages.showing("work:Plans", "personal"))
+
+    def test_app_usage_ring_per_account(self):
+        c = self.copy("work"); c["labels"] = ["Usage: Weekly · all models: 64%, Resets Mon 8:00 AM"]
+        self.pages.snapshot({"trusted": True, "copies": [c]})
+        self.assertEqual(self.b.usage["work:seven_day"]["pct"], 64)
+
+
+class FocusAcrossAccounts(unittest.TestCase):
+    """Which Code session is on screen, with both copies writing to the same log."""
+    def setUp(self):
+        self.support = tempfile.mkdtemp(prefix="deskbuddy-support-")
+        for folder, local, cli in (("Claude", "local_aaa", "cli-personal"), ("Claude-Work", "local_bbb", "cli-work")):
+            d = os.path.join(self.support, folder, "claude-code-sessions", "acct", "org")
+            os.makedirs(d)
+            with open(os.path.join(d, local + ".json"), "w") as f:
+                json.dump({"cliSessionId": cli}, f)
+        p = mock.patch.object(bridge.Focus, "SUPPORT", self.support)
+        p.start(); self.addCleanup(p.stop)
+        self.f = bridge.Focus(start=False)
+
+    def test_each_copy_remembers_its_own_session(self):
+        self.f.set_front("personal"); self.f._apply("local_aaa")
+        self.f.set_front("work"); self.f._apply("local_bbb")
+        self.assertEqual(self.f.code_session, "cli-work")
+        self.f.set_front("personal")
+        self.assertEqual(self.f.code_session, "cli-personal")
+
+    def test_a_session_id_is_credited_to_its_own_copy_even_from_behind(self):
+        self.f.set_front("personal"); self.f._apply("local_aaa")
+        self.f._apply("local_bbb")                           # the work copy logged it in the background
+        self.assertEqual(self.f.code_session, "cli-personal")
+        self.assertEqual(self.f.focused["work"], "cli-work")
+
+    def test_null_clears_the_copy_in_front(self):
+        self.f.set_front("work"); self.f._apply("local_bbb"); self.f._apply("null")
+        self.assertIsNone(self.f.code_session)
+        self.f.set_front(None)                               # another app in front: remembers the last copy
+        self.assertFalse(self.f.front)
+        self.assertEqual(self.f.last_account, "work")
+
+    def test_front_account_from_lsappinfo(self):
+        with mock.patch.object(bridge, "account_of_pid", lambda pid: "work" if pid == 7 else "personal"):
+            self.assertEqual(self.f._front_account('"CFBundleIdentifier"="com.anthropic.claudefordesktop"\n"pid"=7'), "work")
+            self.assertEqual(self.f._front_account('"CFBundleIdentifier"="com.anthropic.claudefordesktop"\n"pid"=8'), "personal")
+            self.assertIsNone(self.f._front_account('"CFBundleIdentifier"="com.apple.Terminal"\n"pid"=9'))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,9 +18,14 @@
 //              deliberately broad so new signals only need changes in the bridge, not a rebuild.
 // No message text is sent: static text is only included when it is short and matches status words.
 //
+// Every running copy of the app is read: Claude Switcher runs each account as its own copy, with
+// --user-data-dir=~/Library/Application Support/Claude-<Name> (personal uses the default folder).
+// Each copy is reported separately, tagged with its account ("personal", "work", ...).
+//
 // It runs as its own login item so only this small binary holds the Accessibility permission.
 // If permission is missing it exits after a while so launchd restarts it and picks up a new grant.
-// Build: swiftc -O -swift-version 5 main.swift -o deskbuddy-appwatch
+// Build: tools/install_bridge.sh (signs it with a stable local certificate when there is one, so
+// a rebuild keeps the permission), or by hand: swiftc -O -swift-version 5 main.swift -o deskbuddy-appwatch
 
 import Cocoa
 import ApplicationServices
@@ -42,7 +47,8 @@ func clip(_ s: String, _ n: Int = 80) -> String { s.count > n ? String(s.prefix(
 
 struct Page: Codable { var buttons: [String] = []; var statuses: [String] = []; var markers: [String] = [] }
 struct Row: Codable { var row: String; var status: String }
-struct Snapshot: Codable { var trusted: Bool; var pages: [String: Page] = [:]; var sidebar: [Row] = []; var tabs: [String] = []; var labels: [String] = [] }
+struct Snapshot: Codable { var account: String; var pages: [String: Page] = [:]; var sidebar: [Row] = []; var tabs: [String] = []; var labels: [String] = [] }
+struct Report: Codable { var trusted: Bool; var copies: [Snapshot] = [] }
 let labelWords = try! NSRegularExpression(
     pattern: "usage|limit|resets|% used|awaiting|needs (you|your)|approval|permission|working|running|responding|thinking|asking",
     options: .caseInsensitive)
@@ -104,6 +110,34 @@ func scan(_ app: AXUIElement, into snap: inout Snapshot) {
     for w in (attr(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? [] { walk(w, 0, nil) }
 }
 
+/// A process's launch arguments (empty if they can't be read).
+func arguments(of pid: pid_t) -> [String] {
+    var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+    var size = 0
+    guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return [] }
+    var buffer = [UInt8](repeating: 0, count: size)
+    guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > 4 else { return [] }
+    let argc = buffer.withUnsafeBytes { Int($0.load(as: Int32.self)) }
+    var index = 4
+    while index < size, buffer[index] != 0 { index += 1 }  // executable path
+    while index < size, buffer[index] == 0 { index += 1 }  // padding
+    var result: [String] = []
+    while result.count < argc, index < size {
+        let start = index
+        while index < size, buffer[index] != 0 { index += 1 }
+        result.append(String(decoding: buffer[start..<index], as: UTF8.self))
+        index += 1
+    }
+    return result
+}
+
+/// "work" for a copy started with --user-data-dir=…/Claude-Work, "personal" for the default folder.
+func account(of pid: pid_t) -> String {
+    guard let dir = arguments(of: pid).first(where: { $0.hasPrefix("--user-data-dir=") }) else { return "personal" }
+    let name = URL(fileURLWithPath: String(dir.dropFirst("--user-data-dir=".count))).lastPathComponent
+    return name.hasPrefix("Claude-") ? String(name.dropFirst("Claude-".count)).lowercased() : name.lowercased()
+}
+
 func post(_ body: Data) {
     var req = URLRequest(url: endpoint, timeoutInterval: 1)
     req.httpMethod = "POST"; req.httpBody = body
@@ -121,13 +155,17 @@ while true {
     // report that, then exit after a minute so launchd restarts us and the grant takes effect.
     if !trusted && Date().timeIntervalSince(started) > 60 { exit(0) }
     autoreleasepool {
-        var snap = Snapshot(trusted: trusted)
-        if trusted, let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
-            let ax = AXUIElementCreateApplication(app.processIdentifier)
-            AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue)  // Electron: expose web content
-            scan(ax, into: &snap)
+        var report = Report(trusted: trusted)
+        if trusted {
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleID) where !app.isTerminated {
+                var snap = Snapshot(account: account(of: app.processIdentifier))
+                let ax = AXUIElementCreateApplication(app.processIdentifier)
+                AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue)  // Electron: expose web content
+                scan(ax, into: &snap)
+                report.copies.append(snap)
+            }
         }
-        let body = (try? JSONEncoder().encode(snap)) ?? Data()
+        let body = (try? JSONEncoder().encode(report)) ?? Data()
         if body != lastBody || Date().timeIntervalSince(lastSent) > 30 {
             post(body); lastBody = body; lastSent = Date()
         }
