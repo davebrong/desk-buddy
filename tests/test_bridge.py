@@ -317,5 +317,188 @@ class DeviceLinks(unittest.TestCase):
         self.assertEqual(len(logs.output), 2)
 
 
+class FakeSlack:
+    """Stands in for slack.com: a few users, DMs with them, unread counts and search results."""
+    def __init__(self):
+        self.users = [{"id": "UME", "name": "joe", "profile": {"display_name": "Joe"}},
+                      {"id": "UBOSS", "name": "sam", "real_name": "Sam Boss", "profile": {"display_name": "Sam"}},
+                      {"id": "UPAL", "name": "pat", "real_name": "Pat Pal", "profile": {}},
+                      {"id": "UBOT", "name": "jira", "is_bot": True, "profile": {}}]
+        self.ims = {"UBOSS": "DBOSS", "UPAL": "DPAL"}
+        self.unread = {"DBOSS": 0, "DPAL": 0}
+        self.latest = {"DBOSS": "1.0", "DPAL": "1.0"}
+        self.found = {"to:me": [], "<@UME>": []}
+        self.calls = []
+
+    def __call__(self, method, **p):
+        self.calls.append((method, p))
+        if method == "auth.test": return {"ok": True, "user_id": "UME"}
+        if method == "users.list": return {"ok": True, "members": self.users}
+        if method == "users.conversations": return {"ok": True, "channels": [{"id": c, "user": u} for u, c in self.ims.items()]}
+        if method == "conversations.info":
+            ch = p["channel"]
+            return {"ok": True, "channel": {"id": ch, "unread_count_display": self.unread[ch], "latest": {"ts": self.latest[ch]}, "last_read": "0"}}
+        if method == "search.messages": return {"ok": True, "messages": {"matches": self.found[p["query"]]}}
+        raise AssertionError("unexpected call " + method)
+
+    def message(self, query, user, ts, ch="DPAL", im=True, **extra):
+        self.found[query].insert(0, {"user": user, "ts": "%.6f" % ts, "channel": {"id": ch, "is_im": im}, "text": "secret words", **extra})
+
+
+class SlackTest(BridgeTest):
+    def setUp(self):
+        super().setUp()
+        with open(bridge.CONFIG_FILE, "w") as f:
+            json.dump({"slack_token": "xoxp-test-token", "slack_vips": ["Sam Boss"]}, f)
+        self.api = FakeSlack()
+        self.w = bridge.SlackWatch(self.b, api=self.api, start=False)
+        p = mock.patch.object(bridge.SlackWatch, "slack_in_front", staticmethod(lambda: self.in_slack))
+        p.start(); self.addCleanup(p.stop)
+        self.in_slack = False
+
+    def poll(self):
+        self.w.poll(self.clock())
+
+    def planes(self):
+        return self.b.dev.sent.count("e tap_plane")
+
+    def test_vip_dm_holds_a_letter_until_read(self):
+        self.poll()
+        self.assertEqual(self.mood(), "idle")
+        self.api.unread["DBOSS"], self.api.latest["DBOSS"] = 1, "5.0"
+        self.poll()
+        self.assertEqual(self.mood(), "letter")
+        self.b.update()
+        self.assertIn("s letter", self.b.dev.sent)
+        self.clock.advance(60); self.poll()
+        self.assertEqual(self.mood(), "letter")            # still unread: still holding it
+        self.api.unread["DBOSS"] = 0
+        self.poll()
+        self.assertEqual(self.mood(), "idle")              # read in Slack: put away
+
+    def test_letter_beats_working_but_not_needs_you(self):
+        self.hook("UserPromptSubmit", "a")
+        self.api.unread["DBOSS"] = 1
+        self.poll()
+        self.assertEqual(self.mood(), "letter")
+        self.hook("PermissionRequest", "a")
+        self.assertEqual(self.mood(), "alert")
+        self.hook("PostToolUse", "a")
+        self.assertEqual(self.mood(), "letter")
+
+    def test_letter_times_out_and_a_newer_message_brings_it_back(self):
+        self.api.unread["DBOSS"], self.api.latest["DBOSS"] = 1, "5.0"
+        self.poll()
+        self.clock.advance(bridge.SLACK_VIP_HOLD + 1)
+        self.assertEqual(self.mood(), "idle")
+        self.poll()                                         # same unread message: stays put away
+        self.assertEqual(self.mood(), "idle")
+        self.api.latest["DBOSS"] = "9.0"
+        self.poll()
+        self.assertEqual(self.mood(), "letter")
+
+    def test_hold_time_comes_from_config(self):
+        with open(bridge.CONFIG_FILE, "w") as f:
+            json.dump({"slack_token": "xoxp-test-token", "slack_vips": ["Sam Boss"], "slack_vip_minutes": 5}, f)
+        self.api.unread["DBOSS"] = 1
+        self.poll()
+        self.clock.advance(5 * 60 + 1)
+        self.assertEqual(self.mood(), "idle")
+
+    def test_letters_survive_a_restart(self):
+        self.api.unread["DBOSS"] = 1
+        self.poll(); self.b.save_state()
+        self.b = self.make()
+        self.assertEqual(self.mood(), "letter")
+
+    def test_vips_matched_by_display_name_too(self):
+        with open(bridge.CONFIG_FILE, "w") as f:
+            json.dump({"slack_token": "xoxp-test-token", "slack_vips": ["sam"]}, f)
+        self.api.unread["DBOSS"] = 1
+        self.poll()
+        self.assertEqual(self.mood(), "letter")
+
+    def test_dm_or_mention_sends_one_plane(self):
+        self.poll()
+        self.clock.advance(30)
+        self.api.message("to:me", "UPAL", self.clock() - 5)
+        self.api.message("<@UME>", "UPAL", self.clock() - 3, ch="CGEN", im=False)
+        self.poll()
+        self.assertEqual(self.planes(), 1)
+        self.clock.advance(30); self.poll()
+        self.assertEqual(self.planes(), 1)                 # nothing new: no second plane
+        self.clock.advance(bridge.PLANE_GAP)
+        self.api.message("<@UME>", "UPAL", self.clock() - 1, ch="CGEN", im=False)
+        self.poll()
+        self.assertEqual(self.planes(), 2)
+
+    def test_planes_are_rationed(self):
+        self.api.message("to:me", "UPAL", self.clock() + 1)
+        self.clock.advance(5); self.poll()
+        self.api.message("to:me", "UPAL", self.clock() + 1)
+        self.clock.advance(5); self.poll()
+        self.assertEqual(self.planes(), 1)
+
+    def test_no_plane_for_own_bot_old_or_vip_messages(self):
+        t = self.clock()
+        self.api.message("to:me", "UME", t + 1)
+        self.api.message("to:me", "UBOT", t + 2)
+        self.api.message("to:me", "UPAL", t + 3, bot_id="B1")
+        self.api.message("to:me", "UBOSS", t + 4, ch="DBOSS")
+        self.clock.advance(10); self.poll()
+        self.assertEqual(self.planes(), 0)
+        self.w.seen = 0                                     # Mac asleep for an hour: stale messages
+        self.api.found["to:me"] = []
+        self.api.message("to:me", "UPAL", t - bridge.PLANE_FRESH - 60)
+        self.poll()
+        self.assertEqual(self.planes(), 0)
+
+    def test_needs_you_and_night_get_no_plane(self):
+        self.hook("PermissionRequest", "a")
+        self.api.message("to:me", "UPAL", self.clock() + 1)
+        self.clock.advance(5); self.poll()
+        self.assertEqual(self.planes(), 0)
+
+    def test_no_plane_while_youre_in_slack_and_letter_waits_a_poll(self):
+        self.in_slack = True
+        self.api.message("to:me", "UPAL", self.clock() + 1)
+        self.api.unread["DBOSS"] = 1
+        self.clock.advance(5); self.poll()
+        self.assertEqual(self.planes(), 0)
+        self.assertEqual(self.mood(), "idle")              # you may be reading it right now
+        self.api.unread["DBOSS"] = 0
+        self.poll()
+        self.assertEqual(self.mood(), "idle")              # you did: no letter at all
+        self.api.unread["DBOSS"], self.api.latest["DBOSS"] = 1, "7.0"
+        self.poll(); self.poll()
+        self.assertEqual(self.mood(), "letter")            # still unread a poll later: letter
+
+    def test_only_searches_for_messages_to_you(self):
+        self.poll()
+        methods = {m for m, _ in self.api.calls}
+        self.assertNotIn("conversations.history", methods)
+        self.assertEqual({p["query"] for m, p in self.api.calls if m == "search.messages"}, {"to:me", "<@UME>"})
+        self.assertEqual({p["channel"] for m, p in self.api.calls if m == "conversations.info"}, {"DBOSS"})   # only VIP DMs
+
+    def test_without_a_token_nothing_is_called(self):
+        with open(bridge.CONFIG_FILE, "w") as f:
+            json.dump({}, f)
+        self.poll()
+        self.assertEqual(self.api.calls, [])
+
+    def test_token_and_message_text_never_reach_the_log(self):
+        self.api.message("to:me", "UPAL", self.clock() + 1)
+        def boom(method, **p): raise RuntimeError("bad url https://slack.com/api/x token=xoxp-test-token")
+        with self.assertLogs("bridge", level="INFO") as logs:
+            self.clock.advance(5); self.poll()
+            self.w.call = boom
+            with mock.patch.object(bridge.time, "time", self.clock):
+                try: self.w.poll(self.clock())
+                except RuntimeError as e: self.w._fail(type(e).__name__ + ": " + str(e).replace(self.w.token, "<token>"))
+        text = "\n".join(logs.output)
+        self.assertNotIn("xoxp-test-token", text)
+        self.assertNotIn("secret words", text)
+
+
 if __name__ == "__main__":
     unittest.main()

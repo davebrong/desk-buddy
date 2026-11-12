@@ -171,6 +171,7 @@ textarea::placeholder { color: #5E687B; }
             <button type="button" data-m="night" aria-pressed="false">Night</button>
             <button type="button" data-m="meeting" aria-pressed="false">Meeting time</button>
             <button type="button" data-m="awake" aria-pressed="false">Awake, unread</button>
+            <button type="button" data-m="letter" aria-pressed="false">VIP letter (Slack)</button>
           </div>
         </div>
         <div class="control">
@@ -182,6 +183,7 @@ textarea::placeholder { color: #5E687B; }
             <button type="button" data-ev="oops">Oops</button>
             <button type="button" data-ev="hello">Hello</button>
             <button type="button" data-ev="tap">Tap the glass</button>
+            <button type="button" data-ev="tap_plane">Paper plane (Slack)</button>
           </div>
         </div>
         <div class="control">
@@ -286,7 +288,7 @@ textarea::placeholder { color: #5E687B; }
 <script>
 (() => {
 const FPS = 24;
-const STATE_LABEL = { idle: 'Asleep', working: 'Working', alert: 'Needs you', done: 'Done', waiting: 'Waiting too long', longhaul: 'Long haul', night: 'Night', meeting: 'Meeting time', awake: 'Awake, unread' };
+const STATE_LABEL = { idle: 'Asleep', working: 'Working', alert: 'Needs you', done: 'Done', waiting: 'Waiting too long', longhaul: 'Long haul', night: 'Night', meeting: 'Meeting time', awake: 'Awake, unread', letter: 'VIP letter' };
 const CLIP_LABEL = { fidget_toss: 'Fidget: toss and turn', fidget_twitch: 'Fidget: cowlick twitch', fidget_bubble: 'Fidget: snore bubble', oops: 'Oops', hello: 'Hello' };
 const hash = i => { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
 
@@ -957,6 +959,93 @@ const TAP_REACT = {
   anvil:   [['AV0', 10], ['AV1', 3], ['AV2', 2], ['AV3', 3], ['AV4', 22], ['AV5', 3], ['AV6', 3], ['A5', 3], ['O4', 3], ['O5', 3], ['N', 6]],
 };
 const TAP_LABEL = { shock: 'electric shock', moto: 'ring of fire', wolf: 'wolf howl', glass: 'face on the glass', banana: 'banana peel', balloon: 'balloon pop', sneeze: 'sneeze', moon: 'mooning', bomb: 'cartoon bomb', prep: 'meeting prep', startle: 'late-night startle', accordion: 'accordion', anvil: 'anvil', disco: 'disco' };
+// ---------- Slack: a VIP's letter (a mood he holds until you've read it) and the paper plane (any other
+// DM or @-mention: plays once, from whatever he's doing, like a gag). Every frame is placed by hand: the
+// envelope's spot and tilt, the plane's spot, heading and side of him, and where his eyes are. ----------
+(() => {
+  const BLINK = [['stroke',[[111,106],[121,106]],2.6], ['stroke',[[135,104],[145,104]],2.6], ['stroke',[[121,121],[128,124],[135,121]],2.6]];
+  // urgent: worried raised brows, big eyes on you, a little open "hey!" mouth
+  const HEY = [['stroke',[[106,96],[118,91]],2.6], ['stroke',[[138,89],[150,94]],2.6], ['oval',116,106,5,6], ['oval',140,104,5,6], ['shine',118,103,1.8], ['shine',142,101,1.8],
+               ['mouth',[[122,117],[134,116],[135,126],[128,130],[121,126]],[128,127,4,2]]];
+  const PLEAD = [['stroke',[[106,95],[118,90]],2.6], ['stroke',[[138,88],[150,93]],2.6], ['oval',116,106,5.6,6.6], ['oval',140,104,5.6,6.6], ['shine',118,102,2.2], ['shine',142,100,2.2],
+                 ['blush',102,120,8,4.5], ['blush',154,118,8,4.5], ['stroke',[[123,122],[128,120],[133,122]],2.6]];
+  // held up in front of him like a sign, in two little mitts (letter: [x, y, tilt, marks, {mitts, size}])
+  const HELD = { mitts: true, size: 1.3 };
+  const pose = (lean, face, ex, ey, tilt, mode, extra) => {    // his whole body rocks with it, the envelope a bit more
+    const d = lean ? xf({ ...D.N, face }, { rot: lean }) : { ...D.N, face };
+    return { ...d, letter: [ex, ey, tilt, mode, HELD], fx: [128, 50], fxm: 'none', ...(extra || {}) };
+  };
+  Object.assign(D, {
+    LV2: pose(0, HEY, 128, 160, 0),
+    LV1: pose(-0.06, HEY, 108, 156, -0.24, 'swishL'),
+    LV3: pose(0.06, HEY, 148, 156, 0.24, 'swishR'),
+    LVH: { ...pose(0, HEY, 128, 151, 0), ...xf({ ...D.N, face: HEY }, { dy: -9 }), letter: [128, 151, 0, undefined, HELD], bang: [[60, 92, -0.25], [196, 88, 0.25]], shadow: [127, 50], fx: [128, 50], fxm: 'none' },
+    LVP: pose(0, PLEAD, 128, 156, -0.05),
+    LVK: pose(0, BLINK, 128, 160, 0),
+    // it arrives: fluttering down past his face, and he grabs it in both mitts
+    LD1: { ...D.N, face: FACE.lookup, letter: [164, -6, -0.45, 'fall'], fx: [128, 50], fxm: 'none' },
+    LD2: { ...D.N, face: [['dot',119,104,4.6], ['dot',143,102,4.6], ['mouth',[[124,118],[133,117],[134,127],[128,131],[123,127]]]], letter: [158, 48, 0.35, 'fall'], fx: [128, 50], fxm: 'none' },
+    LD4: { ...D.N, face: [['dot',117,112,4.6], ['dot',141,110,4.6], ['mouth',[[123,124],[132,123],[133,133],[127,137],[122,133]]]], letter: [150, 112, -0.25, 'fall'], fx: [128, 50], fxm: 'none' },
+    LD3: { ...xf({ ...D.N, face: FACE.happy }, { ky: 0.97 }), letter: [128, 162, -0.04, 'catch', HELD], fx: [128, 50], fxm: 'none' },
+    // read it: over the shoulder it goes
+    LX1: { ...D.D1, face: [['stroke',[[96,118],[102,112],[108,118]],3.2], ['stroke',[[122,116],[128,110],[134,116]],3.2], ['stroke',[[106,130],[115,135],[124,130]],2.8]],
+           letter: [54, 34, -0.9, 'toss'], fxm: 'none' },
+    LX2: { ...D.C1, letter: [6, 2, -1.2, 'gone'], fxm: 'none' },
+    // tossed up out of the way (before a gag), and caught again after it
+    LU1: { ...D.N, face: FACE.lookup, letter: [134, 22, 0.3, 'up'], fx: [128, 50], fxm: 'none' },
+  });
+
+  // The plane: two laps round his head, then away. [x, y, heading, side (1 in front, 0 behind), eyes dx, dy, held, lean]
+  // One hand-placed key per drawing; the second lap runs a little lower in front and higher behind, and he starts to wobble.
+  const KEYS = [
+    [-8, 118, 0.3, 1, -7, 2, 2, 0], [38, 132, 0.18, 1, -6, 3, 2, 0], [82, 141, 0.05, 1, -3, 5, 2, 0], [126, 143, 0, 1, 0, 6, 2, 0],
+    [170, 135, -0.35, 1, 5, 4, 2, 0], [203, 108, -1.1, 1, 7, 0, 2, 0], [207, 74, -1.9, 0, 7, -4, 2, 0], [181, 50, -2.6, 0, 5, -6, 2, 0],
+    [141, 40, 3.1, 0, 1, -7, 2, 0], [100, 44, 2.8, 0, -3, -7, 2, 0], [63, 60, 2.2, 0, -6, -5, 2, 0], [46, 92, 1.6, 1, -7, -1, 2, 0],
+    // lap two
+    [58, 128, 0.85, 1, -6, 3, 2, 0.03], [94, 147, 0.2, 1, -3, 6, 2, 0.03], [136, 149, -0.05, 1, 1, 6, 2, -0.03], [178, 138, -0.45, 1, 5, 4, 2, -0.03],
+    [208, 104, -1.2, 1, 7, 0, 2, 0.04], [209, 66, -2.0, 0, 7, -5, 2, 0.04], [178, 40, -2.7, 0, 4, -7, 2, -0.04], [136, 32, 3.1, 0, 0, -8, 2, -0.04],
+    [94, 38, -2.75, 0, -4, -7, 2, 0.04], [56, 26, -2.55, 0, -6, -7, 2, 0.04], [20, 6, -2.45, 0, -7, -8, 2, 0],
+  ];
+  const wobble = { 8: [[128,71],[120,61],[121,52],[129,51],[128,58]], 9: [[128,71],[125,60],[131,53],[138,57],[134,62]],
+                   19: [[128,71],[120,61],[121,52],[129,51],[128,58]], 20: [[128,71],[125,60],[131,53],[138,57],[134,62]] };
+  const seq = [];
+  KEYS.forEach(([x, y, a, front, ex, ey, n, lean], i) => {
+    const surprised = i === 3 || i === 13 || i === 14;
+    const mouth = surprised ? ['mouth', [[124 + ex * 0.4, 121], [132 + ex * 0.4, 121], [133 + ex * 0.4, 128], [128 + ex * 0.4, 131], [123 + ex * 0.4, 128]]]
+                            : ['stroke', [[121 + ex * 0.4, 123], [128 + ex * 0.4, 125], [135 + ex * 0.4, 123]], 2.6];
+    const r = surprised ? 4.4 : 3.8, id = 'PL' + i.toString(36);
+    const base = { ...D.N, curl: wobble[i] || D.N.curl, face: [['dot', 116 + ex, 110 + ey, r], ['dot', 140 + ex, 108 + ey, r], mouth] };
+    D[id] = { ...(lean ? xf(base, { rot: lean }) : base),
+      plane: [x, y, a, front ? 1.7 : 1.35, front], ptrail: KEYS.slice(Math.max(0, i - 2), i + 1).map(k => [k[0], k[1]]), fx: [128, 50], fxm: 'none' };
+    seq.push([id, n]);
+  });
+  // dizzy from watching it go round twice, then shakes it off and smiles
+  const DIZZY = [['spiral',116,110,5.5], ['spiral',140,108,5.5], ['stroke',[[121,125],[125,123],[129,125],[133,123]],2.6]];
+  D.PLx = { ...xf({ ...D.N, face: DIZZY }, { rot: -0.05 }), whoosh: [16, 12], fx: [128, 50], fxm: 'none' };
+  D.PLy = { ...xf({ ...D.N, face: DIZZY }, { rot: 0.05 }), fx: [128, 50], fxm: 'none' };
+  TAP_REACT.plane = [['N', 4], ...seq, ['PLx', 5], ['PLy', 5], ['PLx', 5], ['PLy', 4], ['O4', 3], ['O5', 3], ['O4', 3], ['O5', 3], ['N', 3], ['C1', 10]];
+  TAP_LABEL.plane = 'paper plane (Slack DM or @-mention)';
+
+  LOOPS.letter = [['LV1', 4], ['LV2', 2], ['LV3', 4], ['LV2', 2], ['LV1', 4], ['LV2', 2], ['LV3', 4], ['LV2', 3],
+                  ['LVH', 3], ['LV2', 2], ['LVH', 3], ['LV2', 4], ['LVP', 14], ['LVK', 2], ['LVP', 6]];
+  const CATCH = [['LD1', 6], ['LD2', 3], ['LD4', 2], ['LD3', 5], ['LV2', 3]], TOSS = [['LX1', 5], ['LX2', 3]];
+  Object.assign(TRANS, {
+    'idle>letter':    [...WAKE, ...CATCH],
+    'working>letter': [['W2', 2], ['H1', 3], ['N', 2], ...CATCH],
+    'alert>letter':   [['A5', 3], ['R1', 6], ['N', 2], ...CATCH],
+    'done>letter':    [['D2', 3], ['N', 2], ...CATCH],
+    'awake>letter':   [['AW1', 2], ...CATCH],
+    'meeting>letter': [['MT3', 3], ['N', 2], ...CATCH],
+    'letter>idle':    [['LV2', 2], ...TOSS, ['N', 2], ...DOZE],
+    'letter>working': [['LV2', 2], ...TOSS, ['N', 2], ['H1', 4], ['W1', 3]],
+    'letter>alert':   [['LV2', 2], ...TOSS, ['NB', 4], ['A1', 3]],
+    'letter>done':    [['LV2', 2], ...TOSS, ['P1', 4], ['D2', 3]],
+    'letter>awake':   [['LV2', 2], ...TOSS, ['AW1', 4]],
+    'letter>meeting': [['LV2', 2], ...TOSS, ['N', 2], ['MT3', 3]],
+  });
+  TAP_IN.letter = [['LV2', 2], ['LU1', 4], ['N', 2]];
+  TAP_OUT.letter = [['N', 2], ['LD2', 2], ['LD4', 2], ['LD3', 4], ['LV2', 2]];
+})();
 // at the meeting alarm itself, prep starts with the alarm clock ringing and him in a panic
 const PREP_ALARM = [['MPp', 3], ['MPq', 3], ['MPp', 3], ['MPq', 3], ['MPp', 3], ...TAP_REACT.prep.slice(2)];
 // the late-night startle starts and ends asleep under his blanket, so it has no way in or out of its own
@@ -985,8 +1074,8 @@ function pickTap() {
   for (const [g, w] of pool) if ((x -= w) < 0) return (lastGag = g);
   return (lastGag = pool[0][0]);
 }
-const MOMENTS = ['idle', 'working', 'alert', 'done', 'waiting', 'longhaul', 'night', 'meeting', 'awake'];
-const BASE = { idle: 'idle', working: 'working', alert: 'alert', done: 'done', waiting: 'alert', longhaul: 'working', night: 'idle', meeting: 'meeting', awake: 'awake' };
+const MOMENTS = ['idle', 'working', 'alert', 'done', 'waiting', 'longhaul', 'night', 'meeting', 'awake', 'letter'];
+const BASE = { idle: 'idle', working: 'working', alert: 'alert', done: 'done', waiting: 'alert', longhaul: 'working', night: 'idle', meeting: 'meeting', awake: 'awake', letter: 'letter' };
 // route between moods: direct transition if drawn, otherwise via the base mood
 function nextHop(a, b) {
   if (TRANS[`${a}>${b}`]) return `${a}>${b}`;
@@ -1378,9 +1467,52 @@ function drawWolfFront(c, d, seed) {
   }
   c.restore();
 }
+// Slack props. The envelope: [x, y, tilt, mode]; mode adds hand marks around it (wiggle, fall, catch, toss, up, gone).
+function drawLetter(c, [x, y, rot, mode, opt], seed) {
+  const L = ink(), sz = (opt && opt.size) || 1, w = 17 * sz, h = 12 * sz, dark = '#0B0E14';
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  if (mode !== 'gone') {
+    c.save(); c.translate(x, y); c.rotate(rot);
+    closedPath(c, boil([[-w, -h], [w, -h], [w, h], [-w, h]], seed + 91, 0.9), [0, 1, 2, 3]);
+    c.fillStyle = '#FFF1DC'; c.fill(); c.strokeStyle = dark; c.lineWidth = 2.2; c.stroke();
+    openPath(c, boil([[-w + 2, -h + 2], [0, 2], [w - 2, -h + 2]], seed + 92, 0.7)); c.lineWidth = 2; c.stroke();     // the flap
+    c.fillStyle = '#E8473B'; c.beginPath(); c.arc(0.5, 3 * sz, 4.4 * sz, 0, Math.PI * 2); c.fill();                // wax seal
+    if (opt && opt.mitts) for (const sd of [-1, 1]) {        // his two little mitts gripping the sides
+      c.save(); c.translate(sd * (w + 1), 3); c.rotate(sd * 0.35);
+      closedPath(c, boil([[-7, -8], [3, -9], [8, -2], [6, 7], [-3, 8], [-8, 1]], seed + 97 + sd, 0.7));
+      c.fillStyle = tint; c.fill(); c.strokeStyle = L; c.lineWidth = 3; c.stroke(); c.restore();
+    }
+    c.restore();
+  }
+  c.strokeStyle = L; c.lineWidth = 2.2;
+  const line = (P, s) => { openPath(c, boil(P, seed + s, 0.8)); c.stroke(); };
+  if (mode === 'swishL') { line([[x + 38, y - 14], [x + 46, y - 6], [x + 48, y + 6]], 93); line([[x + 36, y + 12], [x + 42, y + 19]], 94); }
+  if (mode === 'swishR') { line([[x - 38, y - 14], [x - 46, y - 6], [x - 48, y + 6]], 93); line([[x - 36, y + 12], [x - 42, y + 19]], 94); }
+  if (mode === 'wiggle') { line([[x - 24, y - 12], [x - 29, y - 17]], 93); line([[x + 22, y - 16], [x + 26, y - 22]], 94); line([[x - 25, y + 2], [x - 31, y + 2]], 95); }
+  if (mode === 'fall')   { line([[x - 12, y - 18], [x - 6, y - 24]], 93); line([[x + 4, y - 20], [x + 10, y - 25]], 94); }
+  if (mode === 'catch')  { line([[x - 26, y - 16], [x - 32, y - 22]], 93); line([[x, y - 20], [x, y - 28]], 94); line([[x + 22, y - 18], [x + 27, y - 24]], 95); }
+  if (mode === 'toss')   { line([[x + 18, y + 18], [x + 40, y + 34]], 93); line([[x + 26, y + 8], [x + 50, y + 22]], 94); line([[x + 8, y + 24], [x + 26, y + 42]], 95); }
+  if (mode === 'gone')   { line([[x + 14, y + 16], [x + 30, y + 30]], 93); line([[x + 24, y + 8], [x + 40, y + 20]], 94); }
+  if (mode === 'up')     { line([[x - 10, y + 18], [x - 12, y + 34]], 93); line([[x + 4, y + 20], [x + 3, y + 38]], 94); line([[x + 16, y + 16], [x + 17, y + 30]], 95); }
+  c.restore();
+}
+// The paper plane: d.plane = [x, y, heading, size, in front], d.ptrail = where it's just been.
+function drawPlane(c, d, seed) {
+  const [x, y, a, s] = d.plane, L = ink(), dark = '#0B0E14';
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  if (d.ptrail && d.ptrail.length > 1) { c.strokeStyle = L; c.lineWidth = 2; c.setLineDash([5, 7]); c.globalAlpha = 0.7; openPath(c, boil(d.ptrail, seed + 71, 1.6)); c.stroke(); c.setLineDash([]); c.globalAlpha = 1; }
+  c.translate(x, y); c.rotate(a); c.scale(s, Math.cos(a) < 0 ? -s : s);              // heading left: flip so the wing stays on top
+  closedPath(c, boil([[17, 0], [-12, -10], [-5, -1], [-12, 7]], seed + 72, 0.6), [0, 1, 2, 3]);
+  c.fillStyle = '#FFF1DC'; c.fill(); c.strokeStyle = dark; c.lineWidth = 1.4 / s; c.stroke();
+  c.beginPath(); const W = boil([[17, 0], [-5, -1], [-12, 7]], seed + 73, 0.5); W.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath();
+  c.fillStyle = 'rgba(11,14,20,.22)'; c.fill();                                      // the underside, in shade
+  openPath(c, boil([[16, 0], [-5, -1]], seed + 74, 0.4)); c.strokeStyle = dark; c.lineWidth = 1.6 / s; c.stroke();   // the fold
+  c.restore();
+}
 function drawBackProps(c, d, seed, tick) {
   const L = ink(), paperFill = lineMode === 'glow' ? 'rgba(255,241,220,.14)' : '#FFFFFF';
   c.strokeStyle = L; c.lineCap = 'round'; c.lineJoin = 'round';
+  if (d.plane && !d.plane[4]) drawPlane(c, d, seed);
   if (d.moon) {                                    // a full moon, up in the corner
     const a = d.moon, x = 196, y = 44;
     c.save(); c.globalAlpha = a * 0.12; c.fillStyle = L; c.beginPath(); c.arc(x, y, 34, 0, Math.PI * 2); c.fill();
@@ -1603,6 +1735,19 @@ function drawComputer(c, seed, tick) {
 }
 
 function drawFrontProps(c, d, seed, tick) {
+  if (d.letter) drawLetter(c, d.letter, seed);
+  if (d.bang) {                                 // little hand-drawn "!" marks either side of him
+    c.save(); c.strokeStyle = ink(); c.fillStyle = ink(); c.lineCap = 'round';
+    d.bang.forEach(([bx, by, t], k) => { c.save(); c.translate(bx, by); c.rotate(t); openPath(c, boil([[0, -12], [0.5, -2], [1, 4]], seed + 96 + k, 0.6)); c.lineWidth = 3.4; c.stroke();
+      c.beginPath(); c.arc(1, 11, 2.4, 0, Math.PI * 2); c.fill(); c.restore(); });
+    c.restore();
+  }
+  if (d.plane && d.plane[4]) drawPlane(c, d, seed);
+  if (d.whoosh) {                               // the plane just left, top left: a few speed lines
+    const [wx, wy] = d.whoosh; c.save(); c.strokeStyle = ink(); c.lineWidth = 2.2; c.lineCap = 'round';
+    [[[wx + 30, wy + 26], [wx + 10, wy + 6]], [[wx + 40, wy + 14], [wx + 22, wy - 2]], [[wx + 22, wy + 36], [wx + 4, wy + 18]]].forEach((P, k) => { openPath(c, boil(P, seed + 75 + k, 0.8)); c.stroke(); });
+    c.restore();
+  }
   if (d.wolf) drawWolfFront(c, d, seed);
   if (d.moto) drawMoto(c, d, seed, tick);
   if (d.outlet) {                               // a wall socket: [x, y, sparking]
@@ -2129,6 +2274,10 @@ function playEvent(ev) {
   if (ev === 'tap') {
     const m = cur.kind === 'loop' ? cur.key : target, r = m === 'night' ? 'startle' : (m === 'meeting' || meetingSoon) ? 'prep' : pickTap();
     name = CLIPS[`tap_${r}_${m}`] ? `tap_${r}_${m}` : `tap_${r}_${BASE[m]}`;
+  } else if (!CLIPS[name]) {                     // a named gag (tap_plane) resolves per mood, as on the board
+    const m = cur.kind === 'loop' ? cur.key : target;
+    name = CLIPS[`${ev}_${m}`] ? `${ev}_${m}` : `${ev}_${BASE[m]}`;
+    if (!CLIPS[name]) return;
   }
   pendingClip = name;
   const home = CLIPS[name].home;
@@ -2250,9 +2399,10 @@ function loop(now) {
 }
 
 // ---------- tap gag gallery ----------
-const GAG_ORDER = ['moon', 'bomb', 'prep', 'prepAlarm', 'startle', 'shock', 'moto', 'wolf', 'glass', 'banana', 'balloon', 'sneeze', 'accordion', 'anvil', 'disco'];
+const GAG_ORDER = ['letter', 'plane', 'moon', 'bomb', 'prep', 'prepAlarm', 'startle', 'shock', 'moto', 'wolf', 'glass', 'banana', 'balloon', 'sneeze', 'accordion', 'anvil', 'disco'];
 // situational ones: shown in the colour / light they actually play in
-const GAG_CARD = { prep: { tint: '#3D8BFF', note: 'countdown' }, prepAlarm: { seq: PREP_ALARM, tint: '#3D8BFF', label: 'meeting prep (alarm)' },
+const GAG_CARD = { letter: { seq: [['N', 8], ...TRANS['idle>letter'].slice(5), ...LOOPS.letter, ...LOOPS.letter, ...LOOPS.letter, ...TRANS['letter>idle'].slice(0, 3), ['N', 8]], label: 'VIP letter (Slack): arrives, held until read, tossed' },
+                   prep: { tint: '#3D8BFF', note: 'countdown' }, prepAlarm: { seq: PREP_ALARM, tint: '#3D8BFF', label: 'meeting prep (alarm)' },
                    startle: { seq: CLIPS.tap_startle_night.seq, dim: true, label: 'late-night startle (night only, dimmed)' } };
 const gagSpeeds = [1, 0.5, 0.25];
 let gagSpeedI = 0, gagAcc = 0;

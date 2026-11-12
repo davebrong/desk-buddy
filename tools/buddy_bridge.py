@@ -19,6 +19,11 @@ time you start a session after a long break. The board itself handles escalation
 Chat and Cowork have no hooks, so a small helper (tools/appwatch, its own login
 item) reads the Claude app's accessibility tree and posts page states to /app.
 
+Slack (class SlackWatch, with your own read-only user token in config.json): an unread DM from one
+of your VIPs makes him hold up a letter until Slack says you've read it (or half an hour passes);
+any other DM, or a message that @-mentions you, sends a paper plane looping round him, once.
+Channel traffic that doesn't tag you is never looked at, and "needs you" from Claude always wins.
+
 He also has a little ocarina voice that plays on the Mac's speakers (class Sounds): the WAVs
 come from tools/make_sounds.py and which moments make a sound lives in ~/.desk-buddy/sounds.json
 ("enabled" is the master switch; Claude Switcher's right-click menu flips it).
@@ -86,6 +91,12 @@ FIDGET_EVERY = (5 * 60, 15 * 60)
 HEARTBEAT_EVERY = 15
 NET_PORT = 4210                                    # the board's command port on Wi-Fi (tools/wifi_setup.py)
 STATE_FILE = os.path.join(HOME, "state.json")     # sessions etc. survive a bridge restart
+# Slack, polled with your user token (see class SlackWatch). config.json: "slack_token" (xoxp-..., never
+# logged), "slack_vips" (names as Slack shows them), optional "slack_vip_minutes" (how long a letter lasts).
+SLACK_EVERY = 20                        # seconds between polls
+SLACK_VIP_HOLD = 30 * 60                # a VIP's letter goes away by itself after this, read or not
+PLANE_GAP = 60                          # at most one paper plane a minute, however many messages land
+PLANE_FRESH = 10 * 60                   # older messages (the bridge was down, the Mac asleep) get no plane
 
 os.makedirs(HOME, exist_ok=True)
 log = logging.getLogger("bridge")
@@ -495,6 +506,8 @@ class Buddy:
         self.meeting_dismissed = set()            # meeting starts you've tapped to silence
         self.last_beat = 0.0
         self.saved = None                         # last state.json we wrote
+        self.letters = {}                         # Slack: VIP DMs you haven't read, channel -> {"from", "ts", "since"}
+        self.last_plane = 0.0
         self.load_state()
         self.dev = dev or Device(self.resend, self.board_line)
         if start:
@@ -508,7 +521,8 @@ class Buddy:
         return {"sessions": {k: v for k, v in self.sessions.items() if not k.startswith("app:")},
                 "usage": self.usage, "last_event": self.last_event, "last_active": self.last_active,
                 "goodnight_night": self.goodnight_night,
-                "meeting_dismissed": sorted(self.meeting_dismissed), "meeting_alerted": sorted(self.meeting_alerted)}
+                "meeting_dismissed": sorted(self.meeting_dismissed), "meeting_alerted": sorted(self.meeting_alerted),
+                "letters": self.letters}
 
     def save_state(self):
         with self.lock:
@@ -538,6 +552,7 @@ class Buddy:
         self.goodnight_night = st.get("goodnight_night")
         self.meeting_dismissed = set(st.get("meeting_dismissed") or [])
         self.meeting_alerted = set(st.get("meeting_alerted") or [])
+        self.letters = {k: v for k, v in (st.get("letters") or {}).items() if isinstance(v, dict) and v.get("since")}
         log.info("restored %d session(s) from %s", len(self.sessions), STATE_FILE)
 
     # ---- session bookkeeping ----
@@ -614,6 +629,55 @@ class Buddy:
             if self.sessions.pop(sid, None) is not None:
                 log.info("app %s -> gone", sid[:40])
         self.update()
+
+    # ---- Slack ----
+    def letter_hold(self):
+        try: return float(read_config().get("slack_vip_minutes") or 0) * 60 or SLACK_VIP_HOLD
+        except (TypeError, ValueError): return SLACK_VIP_HOLD
+
+    def letters_locked(self, now):
+        """VIP letters still worth holding up (each lasts until read, or letter_hold() at most). A timed-out
+        one is kept, marked expired, so the same unread message doesn't bring it straight back."""
+        hold = self.letter_hold()
+        for l in self.letters.values():
+            if not l.get("expired") and now - l["since"] > hold:
+                log.info("slack: letter from %s timed out", l.get("from"))
+                l["expired"] = True
+        return {ch: l for ch, l in self.letters.items() if not l.get("expired")}
+
+    def slack_letter(self, ch, sender, ts):
+        """An unread DM from a VIP (ts: Slack's id for the newest one). He holds up a letter."""
+        with self.lock:
+            if (self.letters.get(ch) or {}).get("ts") == ts:
+                return False
+            new = ch not in self.letters_locked(time.time())
+            self.letters[ch] = {"from": sender, "ts": ts, "since": time.time()}
+        log.info("slack: letter from %s", sender)
+        if new:
+            self.sound("slack_vip")
+        self.update()
+        return True
+
+    def slack_read(self, ch):
+        """Slack no longer counts that VIP's DM as unread: put the letter away."""
+        with self.lock:
+            l = self.letters.pop(ch, None)
+        if l:
+            log.info("slack: letter from %s read", l.get("from"))
+            self.update()
+
+    def slack_plane(self, sender, kind):
+        """A DM or @-mention from anyone else: a paper plane, once. Not while he needs you (Claude wins),
+        at the meeting alarm, mid-celebration, at night, or within PLANE_GAP of the last one."""
+        now = time.time()
+        with self.lock:
+            mood = self.mood_locked(now)
+            if mood in ("alert", "meeting", "done", "night") or now - self.last_plane < PLANE_GAP:
+                log.info("slack: %s from %s, no plane (%s)", kind, sender, mood if mood in ("alert", "meeting", "done", "night") else "one just flew")
+                return False
+            self.last_plane = now
+        log.info("slack: %s from %s -> plane", kind, sender)
+        return self.event("tap_plane")
 
     def _set(self, s, state, now):
         """Record a session's new state; a finish starts a celebration and a "check me" mark."""
@@ -745,7 +809,10 @@ class Buddy:
             return "meeting"                    # it's time: this beats everything, briefly
         if now < self.celebrate_until:
             return "done"                       # a finish just happened: celebrate, then back to base
-        return self.base_locked(now)
+        base = self.base_locked(now)
+        if base != "alert" and self.letters_locked(now):
+            return "letter"                     # a VIP wrote: beats everything but "needs you"
+        return base
 
     def mood(self):
         with self.lock:
@@ -891,6 +958,8 @@ class Buddy:
                     "focus": {"claude_in_front": self.focus.front, "code_session": (self.focus.code_session or "")[:8],
                               "app_pages": sorted(getattr(getattr(self, "app", None), "visible", []))},
                     "app_watcher": None if not app or not app.seen else {"trusted": app.trusted, "last_report_s": int(now - app.seen)},
+                    "slack": {"letters": {v.get("from"): int(now - v["since"]) for v in self.letters_locked(now).values()},
+                              "watch": getattr(getattr(self, "slack", None), "status", None)},
                     "sessions": {(k if k.startswith("app:") else k[:8]): {"state": v["state"], "age_s": int(now - v["t"]), "cwd": v["cwd"]} for k, v in self.sessions.items()}}
 
 
@@ -982,6 +1051,195 @@ class AppPages:
             del self.last[n]
 
 
+class SlackError(Exception):
+    pass
+
+
+class SlackWatch:
+    """Slack, read with your own user token (a private "Desk status" app with read-only user scopes:
+    im:read im:history mpim:read mpim:history users:read search:read). Every SLACK_EVERY seconds:
+
+      VIPs ("slack_vips" in config.json, names as Slack shows them): their 1:1 DMs are checked for
+      unread messages. One you haven't read -> Lump holds up a letter until Slack no longer counts it
+      unread (read it anywhere, phone included) or the hold time passes. A newer message re-arms it.
+      Everyone else: a search for messages sent to you (DMs and group DMs) and messages that @-mention
+      you by name. Each new one, unless it's yours or a bot's, sends one paper plane.
+
+    Channel traffic that doesn't tag you never comes back from those searches, so it's never seen.
+    The token is only ever sent to slack.com in a header; it and message text are never logged.
+    The config is re-read every poll: add a token or VIP and it's picked up within SLACK_EVERY."""
+
+    USERS_EVERY, IMS_EVERY = 3600, 600
+    DM_QUERY, MENTION_QUERY = "to:me", "<@{me}>"
+
+    def __init__(self, buddy, api=None, start=True):
+        self.buddy, self.call = buddy, api or self._api
+        self.token, self.me, self.users, self.users_at, self.ims, self.ims_at = None, None, {}, 0.0, {}, 0.0
+        self.seen = time.time()                        # newest message (Slack ts) already reacted to
+        self.unread_once = {}                          # VIP DM -> ts seen unread once while Slack was in front
+        self.status, self.backoff, self.last_err = "off", 0.0, None
+        if start:
+            threading.Thread(target=self._run, daemon=True).start()
+
+    def _api(self, method, **params):
+        import urllib.error, urllib.parse, urllib.request
+        req = urllib.request.Request("https://slack.com/api/" + method + "?" + urllib.parse.urlencode(params),
+                                     headers={"Authorization": "Bearer " + self.token})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                body = json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                raise SlackError("ratelimited, retry after %s" % e.headers.get("Retry-After", "?"))
+            raise SlackError("HTTP %d" % e.code)
+        if not body.get("ok"):
+            raise SlackError(body.get("error", "unknown") + (" (needs %s)" % body["needed"] if body.get("needed") else ""))
+        return body
+
+    def _run(self):
+        while True:
+            time.sleep(SLACK_EVERY)
+            if time.time() < self.backoff:
+                continue
+            try:
+                self.poll(time.time())
+            except SlackError as e:
+                self._fail(str(e))
+            except Exception as e:                      # never kill the loop (and never log the token)
+                self._fail(type(e).__name__ + ": " + str(e).replace(self.token or "\0", "<token>"))
+
+    def _fail(self, why):
+        self.status = "error: " + why
+        if why != self.last_err:
+            log.info("slack: %s", why)
+            self.last_err = why
+        # a bad token or a missing scope won't fix itself: wait for the config to change
+        fatal = any(k in why for k in ("invalid_auth", "token_revoked", "account_inactive", "not_authed", "missing_scope", "not_allowed_token_type"))
+        self.backoff = time.time() + (600 if fatal else 120 if "ratelimited" in why else 60)
+        if fatal:
+            self.me = None
+
+    @staticmethod
+    def slack_in_front():
+        """Is Slack the app you're using right now? (Then a plane is just noise, and a VIP message you're
+        reading as it lands shouldn't get the whole letter routine.)"""
+        try:
+            asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=2).stdout.strip()
+            out = subprocess.run(["lsappinfo", "info", "-only", "bundleID", asn], capture_output=True, text=True, timeout=2).stdout
+            return "com.tinyspeck.slackmacgap" in out
+        except Exception:
+            return False
+
+    def name(self, uid):
+        u = self.users.get(uid) or {}
+        return u.get("name") or uid or "?"
+
+    def poll(self, now):
+        cfg = read_config()
+        token = cfg.get("slack_token")
+        if not token:
+            self.status = "off (no slack_token in config.json)"
+            return
+        if token != self.token:
+            self.token, self.me, self.users_at, self.ims_at, self.backoff = token, None, 0.0, 0.0, 0.0
+        if not self.me:
+            self.me = self.call("auth.test")["user_id"]
+            log.info("slack: connected")
+        vip_names = {str(n).strip().lower() for n in cfg.get("slack_vips") or [] if str(n).strip()}
+        if now - self.users_at > self.USERS_EVERY:
+            self.load_users()
+            self.users_at = now
+        vips = {uid for uid, u in self.users.items() if vip_names & u["names"]}
+        if now - self.ims_at > self.IMS_EVERY:
+            self.load_ims()
+            self.ims_at = now
+        front = self.slack_in_front()
+        self.check_vips(vips, front)
+        self.check_new(vips, now, front)
+        self.status = "ok, %d VIP(s) found of %d named" % (len(vips), len(vip_names))
+        self.last_err = None
+
+    def load_users(self):
+        users, cursor = {}, None
+        for _ in range(50):                             # 200 a page; a big workspace still fits
+            r = self.call("users.list", limit=200, **({"cursor": cursor} if cursor else {}))
+            for m in r.get("members") or []:
+                p = m.get("profile") or {}
+                names = {x.strip().lower() for x in (m.get("real_name"), p.get("real_name"), p.get("display_name"), m.get("name")) if x and x.strip()}
+                users[m["id"]] = {"names": names, "bot": bool(m.get("is_bot")) or m["id"] == "USLACKBOT",
+                                  "name": p.get("display_name") or m.get("real_name") or m.get("name")}
+            cursor = (r.get("response_metadata") or {}).get("next_cursor")
+            if not cursor:
+                break
+        self.users = users
+
+    def load_ims(self):
+        ims, cursor = {}, None
+        for _ in range(20):
+            r = self.call("users.conversations", types="im", exclude_archived="true", limit=200, **({"cursor": cursor} if cursor else {}))
+            for c in r.get("channels") or []:
+                if c.get("user"):
+                    ims[c["user"]] = c["id"]
+            cursor = (r.get("response_metadata") or {}).get("next_cursor")
+            if not cursor:
+                break
+        self.ims = ims
+
+    def check_vips(self, vips, front=False):
+        """A letter for each VIP DM with something unread; put away the ones you've read. With Slack in
+        front it has to still be unread one poll later (you may be reading it as it arrives)."""
+        watched = {self.ims[u]: u for u in vips if u in self.ims}
+        for ch, uid in watched.items():
+            info = self.call("conversations.info", channel=ch)["channel"]
+            unread = info.get("unread_count_display")
+            latest = (info.get("latest") or {}).get("ts")
+            last_read = info.get("last_read") or "0"
+            if unread is None:                          # no count given: is there a message after your read marker?
+                msgs = self.call("conversations.history", channel=ch, oldest=last_read, limit=5).get("messages") or []
+                mine = [m for m in msgs if m.get("user") == uid]
+                unread, latest = len(mine), (mine[0]["ts"] if mine else latest)
+            ts = latest or last_read
+            if unread and front and ch not in self.buddy.letters and self.unread_once.get(ch) != ts:
+                self.unread_once[ch] = ts               # give you a poll to read it
+            elif unread:
+                self.unread_once.pop(ch, None)
+                self.buddy.slack_letter(ch, self.name(uid), ts)
+            else:
+                self.unread_once.pop(ch, None)
+                if ch in self.buddy.letters:
+                    self.buddy.slack_read(ch)
+        for ch in [c for c in self.buddy.letters if c not in watched]:
+            self.buddy.slack_read(ch)                   # no longer a VIP (or the DM's gone)
+
+    def check_new(self, vips, now, front=False):
+        """New DMs and @-mentions since the last poll: one plane for the lot (VIP DMs have their letter)."""
+        hits = []
+        for kind, q in (("DM", self.DM_QUERY), ("mention", self.MENTION_QUERY.format(me=self.me))):
+            r = self.call("search.messages", query=q, sort="timestamp", sort_dir="desc", count=20)
+            for m in (r.get("messages") or {}).get("matches") or []:
+                hits.append((kind, m))
+        newest, plane = self.seen, None
+        for kind, m in hits:
+            try: ts = float(m.get("ts") or 0)
+            except ValueError: continue
+            if ts <= self.seen:
+                continue
+            newest = max(newest, ts)
+            uid, ch = m.get("user"), m.get("channel") or {}
+            if not uid or uid == self.me or (self.users.get(uid) or {}).get("bot") or m.get("bot_id") or now - ts > PLANE_FRESH:
+                continue
+            if uid in vips and ch.get("is_im"):
+                continue                                # a VIP's DM: that's the letter's job
+            if ch.get("is_im") or ch.get("is_mpim"):
+                kind = "DM"
+            plane = plane or (kind, self.name(uid))
+        self.seen = newest
+        if plane and front:
+            log.info("slack: %s from %s, no plane (you're in Slack)", plane[0], plane[1])
+        elif plane:
+            self.buddy.slack_plane(plane[1], plane[0])
+
+
 buddy = None
 
 
@@ -1035,5 +1293,6 @@ if __name__ == "__main__":
     buddy = Buddy()
     buddy.app = AppPages(buddy)
     buddy.calendar = Calendar()
+    buddy.slack = SlackWatch(buddy)
     log.info("desk-buddy bridge listening on 127.0.0.1:%d", HTTP_PORT)
     http.server.ThreadingHTTPServer(("127.0.0.1", HTTP_PORT), Handler).serve_forever()
