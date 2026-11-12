@@ -8,12 +8,13 @@
 // Everything is printed, including the thumbscrews. Export:
 //   openscad -o mount_all.stl -D 'part="print_all"' lump_monitor_mount.scad
 // Fit test first (~15 min): part="thread_test" prints one short screw + one knob nut.
+// Print with supports OFF: every overhang here bridges or is <= 45 degrees.
 //
 // Coordinates: the monitor's back surface is the plane y = 0 (monitor at -y, toward you),
 // +y points away from you, z is up along the monitor's back.
 
 /* [What to render] */
-part = "preview"; // [preview, print_all, thread_test, plate, arm, cradle, hinge_bolt, hinge_nut, swivel_bolt]
+part = "preview"; // [preview, print_all, reprint, plate_arm, thread_test, plate, arm, cradle, hinge_bolt, hinge_nut, swivel_bolt]
 pitch = 12;       // preview only: tilt (+ leans Lump's top toward you)
 yaw = 15;         // preview only: swivel
 
@@ -121,6 +122,8 @@ module plate() {
                 }
         }
         hinge_hole();
+        // room for the hinge knob and nut beside the knuckles (they hit a full-width plate in v1)
+        for (sx = [-1, 1]) translate([sx > 0 ? hinge_w / 2 : -50 - hinge_w / 2, -1, zh - knob_d / 2 - 2]) cube([50, 50, 50]);
     }
 }
 
@@ -135,6 +138,8 @@ module arm() {
         }
         hinge_hole();
         translate([0, pivot_dist, -1]) cylinder(d = hole_d, h = 200);
+        // flat seat for the swivel knob (v1's sloped underside caught the knob's edge)
+        translate([0, pivot_dist, -1]) cylinder(d = knob_d + 2, h = z_shelf - shelf_t + 1);
     }
 }
 
@@ -148,7 +153,8 @@ module cradle() {
             cube([iw + 2 * cradle_wall, id + 2 * cradle_wall, cradle_floor + cradle_lip]);
         translate([-iw / 2, y0, cradle_floor]) cube([iw, id, 100]);
         translate([-usb_slot / 2, y0 + id - 1, cradle_floor]) cube([usb_slot, 20, 100]);   // USB at the back
-        translate([0, 0, -0.01]) thread_rod(cradle_floor - 1, th_clear);                 // blind threaded hole
+        // threaded hole goes right through: no ceiling, so the slicer never fills it with support
+        translate([0, 0, -0.01]) thread_rod(cradle_floor + 0.02, th_clear);
         translate([0, 0, -0.01]) cylinder(d1 = th_d + 1.2, d2 = th_d - 0.4, h = 0.8);
     }
 }
@@ -188,17 +194,22 @@ arm_len = pivot_dist + shelf_r - (yh - knuckle_r);
 row1_w = plate_w + 2 * cradle_hx + 2 * arm_hx + 2 * gap;
 row1_h = max(z_shelf, case_d + 2 * clear + 2 * cradle_wall, arm_len);
 
-module print_all() {
-    translate([-row1_w / 2, -(row1_h - knob_d - gap) / 2, 0]) {
+module print_all(knobs = true) {
+    translate([-row1_w / 2, knobs ? -(row1_h - knob_d - gap) / 2 : -row1_h / 2, 0]) {
         translate([plate_w / 2, 2, 0]) plate_print();
         translate([plate_w + gap + cradle_hx, -cradle_y0, 0]) cradle();
         translate([plate_w + 2 * cradle_hx + 2 * gap + arm_hx, 0, 0]) arm_print();
-        for (i = [0:2]) translate([knob_d / 2 + i * (knob_d + gap), -gap - knob_d / 2, 0])
+        if (knobs) for (i = [0:2]) translate([knob_d / 2 + i * (knob_d + gap), -gap - knob_d / 2, 0])
             if (i == 0) hinge_bolt(); else if (i == 1) swivel_bolt(); else hinge_nut();
     }
 }
 
 if (part == "print_all") print_all();
+else if (part == "reprint") print_all(knobs = false);
+else if (part == "plate_arm") translate([-(plate_w + gap + 2 * arm_hx) / 2, -row1_h / 2, 0]) {   // v2 plate + arm only
+    translate([plate_w / 2, 2, 0]) plate_print();
+    translate([plate_w + gap + arm_hx, 0, 0]) arm_print();
+}   // v2 fixes: plate, cradle, arm (v1 knobs still fit)
 else if (part == "thread_test") { swivel_bolt(); translate([28, 0, 0]) hinge_nut(); }
 else if (part == "plate") plate_print();
 else if (part == "arm") arm_print();

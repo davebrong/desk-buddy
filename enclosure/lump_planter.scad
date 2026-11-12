@@ -104,7 +104,9 @@ module fence() {
 module pot() {
     difference() {
         union() {
-            hull() { sec(0, wall); sec(H - rim_h, wall); }
+            // The body stops where the rim's underside starts and the two share that one slice,
+            // so they meet edge to edge (overlapping sloped walls left sliver faces in the STL).
+            hull() { sec(0, wall); sec(H - rim_h - rim_lip, wall); }
             hull() {
                 sec(H - rim_h - rim_lip, wall);       // 45-degree underside: prints without support
                 sec(H - rim_h, wall + rim_lip);
