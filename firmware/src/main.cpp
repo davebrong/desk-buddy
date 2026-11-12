@@ -16,8 +16,15 @@
 //   c <RRGGBB>        body colour (fades over ~1 s); default Tangerine FF7A45
 //   i                 motion sensor stats: peak jolt in the last few seconds, taps seen, threshold
 //   T <g>             tap sensitivity: jolt (in g) that counts as a tap (default 0.35)
+//   h <secs>          heartbeat from the bridge, with the local time of day (seconds since midnight);
+//                     no reply. Any command counts as hearing from the bridge.
 //   ?                 report state
 // The board prints "tap" when the glass is tapped (and giggles itself when that makes sense).
+//
+// On his own: with no word from the bridge for a minute (or since boot) he's "offline": he
+// drops what he was showing, idles and fidgets (asleep at night if a heartbeat ever told him the
+// time), and shows a small unplugged-cable mark in the bottom-right corner. Just powered from a
+// charger, he lives like this. When the bridge speaks again he prints "resync" so it resends.
 // On its own the device also: fidgets every minute or so while asleep, escalates "alert" to
 // "waiting" after 45 s, slides "working" into "longhaul" after 10 min, and dims at night.
 
@@ -29,6 +36,9 @@ constexpr int PIN_SCLK = 40, PIN_MOSI = 41, PIN_DC = 38, PIN_CS = 39, PIN_RST = 
 constexpr bool PRISM_MIRROR = true;  // rotations 4–7 are mirrored for the prism
 constexpr uint32_t ESCALATE_MS = 45000, LONGHAUL_MS = 10UL * 60 * 1000;
 constexpr uint8_t BL_DAY = 255, BL_NIGHT = 70;
+constexpr uint32_t HOST_TIMEOUT_MS = 60000;    // bridge heartbeats every 15 s
+constexpr uint32_t OFFLINE_MARK_AFTER_MS = 8000;  // at boot, give the bridge a moment before showing the mark
+constexpr uint8_t NIGHT_FROM = 22, NIGHT_UNTIL = 7;  // matches the bridge
 
 class LGFX : public lgfx::LGFX_Device {
   lgfx::Panel_ST7789 panel;
@@ -194,7 +204,7 @@ static const Step DEMO[] = {
   {'s', "idle", 4000}, {'e', "fidget_toss", 5500}, {'e', "hello", 7000},
   {'s', "night", 9000}, {'s', "idle", 3000},
 };
-static bool demo = true;
+static bool demo = false;
 static int demoStep = -1;
 static uint32_t demoNext = 0;
 static void runDemo(uint32_t now) {
@@ -274,19 +284,58 @@ static void imuTask(void*) {
   }
 }
 
+// ---------- on his own: no bridge ----------
+static uint32_t lastHost = 0, clockAt = 0;
+static int32_t clockBase = -1;                 // seconds since local midnight at clockAt; -1 = unknown
+static bool hostSeen = false, offline = true;  // offline until the bridge says something
+static int ovWorking = 0, ovWaiting = 0, ovUnseen = 0;
+static bool hostAlive(uint32_t now) { return hostSeen && now - lastHost < HOST_TIMEOUT_MS; }
+static bool nightNow(uint32_t now) {
+  if (clockBase < 0) return false;
+  uint32_t h = ((clockBase + (now - clockAt) / 1000) % 86400) / 3600;
+  return h >= NIGHT_FROM || h < NIGHT_UNTIL;
+}
+static void heardFromHost() {
+  bool was = offline;
+  lastHost = millis(); hostSeen = true; offline = false;
+  if (was) Serial.println("resync");           // the bridge resends mood, colour and corner extras
+}
+static void runOffline(uint32_t now) {
+  if (!offline && !hostAlive(now)) {           // lost the bridge: forget what it last told us
+    offline = true;
+    ovWorking = ovWaiting = ovUnseen = 0;
+    goalR = 255; goalG = 122; goalB = 69;      // back to Tangerine (a usage or meeting colour would be stale)
+  }
+  if (!offline || demo) return;
+  int want = moodIndex(nightNow(now) ? "night" : "idle");
+  if (want >= 0 && target != want && pendingEvent < 0 && A.kind[curSeq] == LOOP) setTarget(want);
+}
+static bool offlineMark(uint32_t now) { return offline && !demo && now > OFFLINE_MARK_AFTER_MS; }
+// a little unplugged cable, gently reaching for its socket
+static void drawOfflineMark(uint32_t now) {
+  float t = now / 1000.f, k = 0.45f + 0.3f * sinf(t * 2.1f);
+  uint16_t c = lgfx::color565(255 * k, 241 * k, 220 * k);
+  int px = 200 + int(2.5f + 2.5f * sinf(t * 1.3f));  // plug drifts 0..5 px, never reaches the socket
+  fb.fillRect(186, 226, px - 186, 2, c);              // cable
+  fb.fillRoundRect(px, 221, 9, 12, 2, c);             // plug
+  fb.fillRect(px + 9, 223, 4, 2, c); fb.fillRect(px + 9, 229, 4, 2, c);  // prongs
+  fb.fillRoundRect(220, 219, 4, 16, 1, c);            // socket
+}
+
 // ---------- corner extras ----------
 // Small marks drawn over the animation so nothing is hidden when several sessions are busy:
 //   bottom-left  three bouncing dots: something is working in the background
 //   top-left     amber dots, one per session waiting on you (when more than he can show)
 //   top-right    a twinkling sparkle: something finished that you haven't looked at yet
-static int ovWorking = 0, ovWaiting = 0, ovUnseen = 0;
 static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) { return lgfx::color565(r, g, b); }
 static bool overlayVisible() {
+  if (offlineMark(millis())) return true;
   const String& m = A.moodName[target];
   bool workingMood = m == "working" || m == "longhaul", alertMood = m == "alert" || m == "waiting";
   return (ovWorking > 0 && !workingMood) || ovWaiting >= 2 || (ovWaiting >= 1 && !alertMood) || (ovUnseen > 0 && m != "done");
 }
 static void drawOverlay(uint32_t now) {
+  if (offlineMark(now)) drawOfflineMark(now);
   const String& m = A.moodName[target];
   bool workingMood = m == "working" || m == "longhaul", alertMood = m == "alert" || m == "waiting";
   float t = now / 1000.f;
@@ -314,12 +363,14 @@ static void drawOverlay(uint32_t now) {
 // ---------- serial ----------
 static void reply() {
   Serial.printf("ok mode=%s target=%s playing=%s(%s) fps=%.1f frames=%u seqs=%u\n",
-    demo ? "demo" : "direct", A.moodName[target].c_str(), A.name[curSeq].c_str(),
+    demo ? "demo" : offline ? "offline" : "direct", A.moodName[target].c_str(), A.name[curSeq].c_str(),
     A.kind[curSeq] == LOOP ? "loop" : A.kind[curSeq] == TRANS ? "transition" : "event", fps, A.nFrames, A.nSeqs);
 }
 static void handleLine(String ln) {
   ln.trim(); if (!ln.length()) return;
   char cmd = ln[0]; String arg = ln.substring(1); arg.trim(); arg.toLowerCase();
+  heardFromHost();
+  if (cmd == 'h') { long s = arg.toInt(); if (s >= 0 && s < 86400) { clockBase = s; clockAt = millis(); } return; }
   if (cmd == 's') {
     if (arg == "demo" || arg == "cycle") { demo = true; demoNext = 0; return reply(); }
     int m = moodIndex(arg);
@@ -391,6 +442,7 @@ void loop() {
     playEvent("tap");                              // he reacts in every mood (the bridge may then move him on)
   }
   runDemo(now);
+  runOffline(now);
   autoBehaviour(now);
   backlight(now);
 

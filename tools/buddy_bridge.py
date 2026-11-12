@@ -23,15 +23,19 @@ He also has a little ocarina voice that plays on the Mac's speakers (class Sound
 come from tools/make_sounds.py and which moments make a sound lives in ~/.desk-buddy/sounds.json
 ("enabled" is the master switch; Claude Switcher's right-click menu flips it).
 
+It sends a heartbeat ("h", which also carries the time of day) every 15 s; without it the board
+goes its own way after a minute and shows he's not connected. Session state is kept in
+~/.desk-buddy/state.json across restarts.
+
 Extras for debugging:  GET /status   POST /cmd  (body: a raw command such as "s done")
                        GET /sound    POST /sound (body: on | off | toggle | play <moment>)
 Install as a login item with tools/install_bridge.sh.
 """
-import glob, http.server, json, logging, logging.handlers, os, random, re, subprocess, threading, time
+import glob, http.server, json, logging, logging.handlers, os, random, re, subprocess, sys, threading, time
 import serial
 
 HTTP_PORT = 47823
-HOME = os.path.expanduser("~/.desk-buddy")
+HOME = os.environ.get("DESKBUDDY_HOME") or os.path.expanduser("~/.desk-buddy")   # tests point this elsewhere
 NIGHT_START, NIGHT_END = 22, 7          # local hours
 DONE_SECS = 8                           # celebration when nothing else is going on
 CELEBRATE_SECS = 3.5                    # quick celebration when other things are still going on
@@ -70,6 +74,11 @@ STILL_WAITING_AFTER = 45                # matches the board's alert -> waiting e
 LONG_JOB_AFTER = 10 * 60                # matches the board's working -> longhaul
 NIGHT_AWAKE = 15 * 60
 FIDGET_EVERY = (5 * 60, 15 * 60)
+# Heartbeat: "h <seconds since local midnight>" every HEARTBEAT_EVERY. If the board hears nothing
+# for a minute (bridge crashed, Mac asleep, USB power only) he goes his own way: idle and fidgeting,
+# asleep at night, with a little unplugged-cable mark. The heartbeat also tells him the time.
+HEARTBEAT_EVERY = 15
+STATE_FILE = os.path.join(HOME, "state.json")     # sessions etc. survive a bridge restart
 
 os.makedirs(HOME, exist_ok=True)
 log = logging.getLogger("bridge")
@@ -77,7 +86,8 @@ log.setLevel(logging.INFO)
 _h = logging.handlers.RotatingFileHandler(os.path.join(HOME, "bridge.log"), maxBytes=500_000, backupCount=2)
 _h.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
 log.addHandler(_h)
-log.addHandler(logging.StreamHandler())
+if sys.stderr.isatty():          # under launchd stderr is bridge.out, which only needs crashes
+    log.addHandler(logging.StreamHandler())
 
 
 class Device:
@@ -111,7 +121,7 @@ class Device:
                 self.ser = self._open()
                 if not self.ser:
                     time.sleep(3); continue
-                time.sleep(0.3); self.on_ready()
+                time.sleep(0.3); self._call(self.on_ready)
             try:
                 buf += self.ser.read(256)
                 while b"\n" in buf:
@@ -119,23 +129,31 @@ class Device:
                     text = line.decode(errors="replace").strip()
                     if text:
                         log.info("board: %s", text)
-                    if "lump ready" in text:      # board rebooted: tell it the mood again
-                        self.on_ready()
+                    # board rebooted, or it had given up on us (no heartbeat) and gone its own way
+                    if "lump ready" in text or text == "resync":
+                        self._call(self.on_ready)
                     elif text == "tap" and self.on_line:
-                        self.on_line(text)
+                        self._call(self.on_line, text)
             except Exception as e:
                 log.info("serial lost: %s", e)
                 try: self.ser.close()
                 except Exception: pass
                 self.ser = None
 
-    def send(self, cmd):
+    @staticmethod
+    def _call(fn, *a):
+        """Run a bridge callback; a bug in one must not take down the serial reader."""
+        try: fn(*a)
+        except Exception: log.exception("serial callback failed")
+
+    def send(self, cmd, quiet=False):
         with self.lock:
             if not self.ser:
                 return False
             try:
                 self.ser.write((cmd + "\n").encode()); self.ser.flush()
-                log.info("-> %s", cmd); return True
+                if not quiet: log.info("-> %s", cmd)
+                return True
             except Exception as e:
                 log.info("write failed: %s", e); return False
 
@@ -386,7 +404,7 @@ def usage_colour(frac):
 
 
 class Buddy:
-    def __init__(self):
+    def __init__(self, dev=None, focus=None, sounds=None, start=True):
         self.lock = threading.Lock()
         self.sessions = {}            # session_id -> {"state", "t", "cwd"}
         self.last_event = 0.0
@@ -398,16 +416,60 @@ class Buddy:
         self.meeting_alerted = set()   # meeting start times we've already announced
         self.last_oops = 0.0
         self.resync_at = 0.0
-        self.sounds = Sounds()
+        self.sounds = sounds or Sounds()
         self.last_active = 0.0         # last time you did something (prompt, answer, new session)
         self.goodnight_night = None    # which night we've already said goodnight for
         self.woke_at = 0.0
         self.working_since, self.long_played = None, False
         self.next_fidget = time.time() + random.uniform(*FIDGET_EVERY)
-        self.focus = Focus()
+        self.focus = focus or Focus()
         self.meeting_dismissed = set()            # meeting starts you've tapped to silence
-        self.dev = Device(self.resend, self.board_line)
-        threading.Thread(target=self._tick, daemon=True).start()
+        self.last_beat = 0.0
+        self.saved = None                         # last state.json we wrote
+        self.load_state()
+        self.dev = dev or Device(self.resend, self.board_line)
+        if start:
+            threading.Thread(target=self._tick, daemon=True).start()
+
+    # ---- surviving restarts ----
+    # Code sessions, usage readings and a few "already done that" markers are kept in state.json so
+    # reinstalling or restarting the bridge doesn't forget a pending "needs you" or unread result.
+    # Chat/Cowork ("app:") sessions aren't kept: the app watcher re-reports them within seconds.
+    def state_locked(self):
+        return {"sessions": {k: v for k, v in self.sessions.items() if not k.startswith("app:")},
+                "usage": self.usage, "last_event": self.last_event, "last_active": self.last_active,
+                "goodnight_night": self.goodnight_night,
+                "meeting_dismissed": sorted(self.meeting_dismissed), "meeting_alerted": sorted(self.meeting_alerted)}
+
+    def save_state(self):
+        with self.lock:
+            data = json.dumps(self.state_locked(), sort_keys=True)
+        if data == self.saved:
+            return
+        tmp = STATE_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(data)
+        os.replace(tmp, STATE_FILE)
+        self.saved = data
+
+    def load_state(self):
+        try:
+            with open(STATE_FILE) as f:
+                st = json.load(f)
+        except FileNotFoundError:
+            return
+        except Exception as e:
+            log.info("ignoring unreadable %s: %s", STATE_FILE, e); return
+        now = time.time()
+        self.sessions = {k: v for k, v in (st.get("sessions") or {}).items()
+                         if isinstance(v, dict) and now - v.get("t", 0) < FORGET}
+        self.usage = st.get("usage") or {}
+        self.last_event = st.get("last_event", 0.0)
+        self.last_active = st.get("last_active", 0.0)
+        self.goodnight_night = st.get("goodnight_night")
+        self.meeting_dismissed = set(st.get("meeting_dismissed") or [])
+        self.meeting_alerted = set(st.get("meeting_alerted") or [])
+        log.info("restored %d session(s) from %s", len(self.sessions), STATE_FILE)
 
     # ---- session bookkeeping ----
     def hook(self, p):
@@ -673,6 +735,7 @@ class Buddy:
 
     def resend(self):
         self.sent_mood = self.sent_overlay = self.sent_colour = None
+        self.last_beat = 0.0                            # and tell him the time straight away
         if time.time() - self.woke_at > 60:            # board plugged in or restarted
             self.woke_at = time.time()
             self.sound("waking_up")
@@ -709,14 +772,26 @@ class Buddy:
             self.resync_at = time.time() + 8
 
     def _tick(self):
+        # Nothing in here may kill this loop: it drives the board, the heartbeat and saving. (If it
+        # did die anyway, the heartbeat would stop and the board would show he's on his own.)
         while True:
             time.sleep(1)
-            if self.resync_at and time.time() > self.resync_at:
-                self.resync_at = 0; self.update(force=True)
-            else:
-                self.update()
-            try: self.sound_tick(time.time())
-            except Exception as e: log.info("sound tick failed: %s", e)
+            try: self.tick(time.time())
+            except Exception: log.exception("tick failed")
+
+    def tick(self, now):
+        if self.resync_at and now > self.resync_at:
+            self.resync_at = 0; self.update(force=True)
+        else:
+            self.update()
+        if now - self.last_beat >= HEARTBEAT_EVERY:
+            lt = time.localtime(now)
+            if self.dev.send(f"h {lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec}", quiet=True):
+                self.last_beat = now
+        try: self.sound_tick(now)
+        except Exception: log.exception("sound tick failed")
+        try: self.save_state()
+        except Exception: log.exception("saving %s failed", STATE_FILE)
 
     def status(self):
         with self.lock:
