@@ -4,9 +4,17 @@
     {
       "name": "sound-audition",
       "runtimeExecutable": "/bin/sh",
-      "runtimeArgs": ["-c", "cd /private/tmp/claude-501/-Users-joebentham--claude-spares-spare-rcAPud/cfe0c546-4948-4910-a484-f84135a5e135/scratchpad/site && exec python3 -m http.server 8765 --bind 127.0.0.1"],
+      "runtimeArgs": [
+        "-c",
+        "cd /private/tmp/claude-501/-Users-joebentham--claude-spares-spare-rcAPud/cfe0c546-4948-4910-a484-f84135a5e135/scratchpad/site && exec python3 -m http.server 8765 --bind 127.0.0.1"
+      ],
       "port": 8765,
       "autoPort": false
+    },
+    {
+      "name": "lump-preview",
+      "url": "http://localhost:8767",
+      "port": 8767
     }
   ]
 }

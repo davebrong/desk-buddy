@@ -474,6 +474,7 @@ class Buddy:
         self.celebrate_until = 0.0
         self.usage = {}                # from the status line: five_hour / seven_day pct + resets
         self.sent_colour = None
+        self.sent_prep = None          # meeting countdown flag last sent (p 0 / p 1)
         self.meeting_alerted = set()   # meeting start times we've already announced
         self.last_oops = 0.0
         self.resync_at = 0.0
@@ -757,6 +758,16 @@ class Buddy:
         if force or overlay != self.sent_overlay:
             if self.dev.send(overlay):
                 self.sent_overlay = overlay
+        # meeting countdown (or its alarm) running: a tap on the glass then plays meeting prep
+        prep = "p 1" if self.prep_time(now) else "p 0"
+        if force or prep != self.sent_prep:
+            if self.dev.send(prep):
+                self.sent_prep = prep
+
+    def prep_time(self, now):
+        """True from MEETING_LEAD before a meeting until its alarm window is over."""
+        m = self.next_meeting(now)
+        return bool(m) and -MEETING_ALERT_SECS <= m["start"] - now < MEETING_LEAD
 
     def usage_frac(self, now):
         fr = [w["pct"] / 100 for w in self.usage.values() if w.get("pct") is not None
@@ -795,7 +806,7 @@ class Buddy:
         self.update()
 
     def resend(self):
-        self.sent_mood = self.sent_overlay = self.sent_colour = None
+        self.sent_mood = self.sent_overlay = self.sent_colour = self.sent_prep = None
         self.last_beat = 0.0                            # and tell him the time straight away
         if time.time() - self.woke_at > 60:            # board plugged in or restarted
             self.woke_at = time.time()

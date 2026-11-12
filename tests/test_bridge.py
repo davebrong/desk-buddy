@@ -149,6 +149,34 @@ class MoodRules(BridgeTest):
         self.assertEqual(self.mood(), "night")
 
 
+class MeetingPrep(BridgeTest):
+    """While a meeting is coming up (or its alarm is ringing) the board is told "p 1", so a tap plays meeting prep."""
+    def meeting_in(self, secs):
+        with open(bridge.MEETINGS_FILE, "w") as f:
+            json.dump([{"start": self.clock() + secs, "title": "standup"}], f)
+
+    def prep_flags(self):
+        return [c for c in self.b.dev.sent if c.startswith("p ")]
+
+    def test_no_meeting_means_no_prep(self):
+        self.b.update()
+        self.assertEqual(self.prep_flags(), ["p 0"])
+
+    def test_countdown_turns_prep_on_then_off_after_the_alarm(self):
+        self.meeting_in(30 * 60)
+        self.b.update()
+        self.clock.advance(21 * 60); self.b.update()              # 9 minutes to go: countdown
+        self.clock.advance(9 * 60 + 10); self.b.update()           # alarm ringing
+        self.clock.advance(60); self.b.update()                    # alarm window over
+        self.assertEqual(self.prep_flags(), ["p 0", "p 1", "p 0"])
+
+    def test_resend_repeats_the_prep_flag(self):
+        self.meeting_in(5 * 60)
+        self.b.update(); self.b.dev.sent.clear()
+        self.b.resend()
+        self.assertIn("p 1", self.b.dev.sent)
+
+
 class Heartbeat(BridgeTest):
     def beats(self):
         return [c for c in self.b.dev.sent if c.startswith("h ")]

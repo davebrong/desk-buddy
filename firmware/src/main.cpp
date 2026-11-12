@@ -7,10 +7,13 @@
 //
 // Serial protocol (115200, newline-terminated), answered with "ok ..." or "err ...":
 //   s <mood>          head to a mood: idle working alert done waiting longhaul night
-//   s demo            showcase every mood and event on a loop (the boot default)
+//   s demo            showcase every mood and event on a loop
 //   e <event>         play an event: fidget_toss fidget_twitch fidget_bubble oops hello tap
-//                     ("tap" picks a reaction for the current mood: giggle, startle, wobble, annoyed
-//                      or knocked over; quick repeat taps annoy him, then knock him flat)
+//                     ("tap" plays a random gag for the current mood: electric shock, ring of fire,
+//                      wolf howl, accordion, anvil, disco, face on the glass, banana peel, balloon pop,
+//                      sneeze, mooning, cartoon bomb; at night the late-night startle; during a meeting
+//                      countdown or alarm, meeting prep)
+//   p <0|1>           meeting countdown running (the bridge sends it): taps play meeting prep
 //   o <working> <waiting> <unseen>   corner extras: counts of sessions working, waiting on you,
 //                     and finished-but-not-looked-at (drawn over the animation)
 //   c <RRGGBB>        body colour (fades over ~1 s); default Tangerine FF7A45
@@ -78,7 +81,7 @@ static LGFX_Sprite fb(&tft);
 extern const uint8_t lump_start[] asm("_binary_data_lump_bin_start");
 extern const uint8_t lump_end[] asm("_binary_data_lump_bin_end");
 
-constexpr int MAX_MOODS = 12, MAX_SEQ = 160;
+constexpr int MAX_MOODS = 12, MAX_SEQ = 250;
 enum Kind : uint8_t { LOOP = 0, TRANS = 1, EVENT = 2 };
 struct Anim {
   uint16_t nFrames = 0; uint8_t fps = 24, nMoods = 0, nSeqs = 0;
@@ -122,7 +125,7 @@ static int eventIndex(const String& n) { for (int i = 0; i < A.nSeqs; i++) if (A
 
 // ---------- body colour ----------
 // Frames are exported with his body in pure magenta (FF00FF), the only colour besides the cream
-// line (FFF1DC) and black. Every pixel is some mix  alpha*magenta + beta*cream  (plus black), and
+// line (FFF1DC) and black (props with their own colour, like the yellow banana, are left alone). Every pixel is some mix  alpha*magenta + beta*cream  (plus black), and
 // since magenta has no green, beta = G/241 and alpha = R/255 - beta. Swapping magenta for the
 // current body colour recolours the fill, its soft edges, the tongue and the blanket alike.
 static float tintR = 255, tintG = 122, tintB = 69;        // current (fading) colour, Tangerine
@@ -134,6 +137,7 @@ static uint16_t recolor(uint16_t stored) {               // stored = byte-swappe
   if (r < 8 && g < 8 && b < 8) return stored;            // black stays black
   float beta = g / 241.f, alpha = r / 255.f - beta;
   if (alpha <= 0.02f) return stored;                     // pure line colour: unchanged
+  if (b < alpha * 255 + beta * 220 - 48) return stored;  // a real colour (the yellow banana): keep it
   int nr = min(255, int(alpha * tintR + beta * 255)), ng = min(255, int(alpha * tintG + beta * 241)), nb = min(255, int(alpha * tintB + beta * 220));
   return sw16(lgfx::color565(nr, ng, nb));
 }
@@ -177,6 +181,13 @@ static void settle(int m) {  // arrived in mood m's loop
     if (h >= 0) return startSeq(h);
     curMood = m = target;  // nothing drawn for this route: cut (shouldn't happen)
   }
+  // a gag queued for a mood he never settled in (the bridge moved him on meanwhile): play the same
+  // gag in the mood he did land in, rather than silently dropping it
+  if (pendingEvent >= 0 && A.from[pendingEvent] != m) {
+    String n = A.name[pendingEvent]; int u = n.lastIndexOf('_'), e2 = -1;
+    if (u > 0) { e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[m]); if (e2 < 0) e2 = eventIndex(n.substring(0, u) + "_" + A.moodName[A.base[m]]); }
+    pendingEvent = e2;
+  }
   if (pendingEvent >= 0 && A.from[pendingEvent] == m) { int e = pendingEvent; pendingEvent = -1; return startSeq(e); }
   startSeq(A.loopOf[m]); loopSince = millis();
 }
@@ -185,19 +196,26 @@ static void setTarget(int m) {
   if (A.kind[curSeq] == LOOP) settle(curMood);
 }
 // returns false if there's no such event
-// Tapping the glass: the first tap gets a random reaction, a second quick tap annoys him,
-// a third knocks him flat. Every mood has its own version (tap_<reaction>_<mood>).
+// Tapping the glass: in the daytime every tap gets one of his gags at random, never the same one twice
+// running. Every daytime mood has its own version of each (tap_<gag>_<mood>). Two taps depend on the moment:
+// at night he only does the soft late-night startle (tap_startle_night), and while a meeting is coming up
+// (the bridge says "p 1") or the meeting alarm is ringing he only does meeting prep (tap_prep_<mood>).
+static bool prepMode = false;      // the bridge's meeting countdown is running
 static const char* pickTap() {
-  static uint32_t lastTap = 0; static int streak = 0;
-  uint32_t now = millis();
-  streak = (lastTap && now - lastTap < 6000) ? streak + 1 : 1; lastTap = now;
-  if (streak == 2) return "annoyed";
-  if (streak >= 3) { streak = 0; return "knocked"; }
-  int x = random(100);
-  return x < 10 ? "knocked" : x < 50 ? "giggle" : x < 75 ? "startle" : "wobble";
+  static const char* GAG[] = {"shock", "moto", "wolf", "accordion", "anvil", "disco", "glass", "banana", "balloon", "sneeze", "moon", "bomb"};
+  static const int W[] = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+  constexpr int NG = sizeof(W) / sizeof(W[0]);
+  static int last = -1;
+  int total = 0; for (int i = 0; i < NG; i++) if (i != last) total += W[i];
+  int x = random(total);
+  for (int i = 0; i < NG; i++) { if (i == last) continue; if ((x -= W[i]) < 0) { last = i; return GAG[i]; } }
+  return GAG[0];
 }
 static bool playEvent(String n) {
-  if (n == "tap") n = String("tap_") + pickTap();
+  if (n == "tap") {
+    const String& m = A.moodName[target];
+    n = m == "night" ? String("tap_startle") : (prepMode || m == "meeting") ? String("tap_prep") : String("tap_") + pickTap();
+  }
   int e = eventIndex(n);
   if (e < 0) {  // generic names like "tap" resolve per mood: tap_idle, tap_working, ...
     e = eventIndex(n + "_" + A.moodName[target]);
@@ -331,7 +349,7 @@ static void heardFromHost() {
 static void runOffline(uint32_t now) {
   if (!offline && !hostAlive(now)) {           // lost the bridge: forget what it last told us
     offline = true;
-    ovWorking = ovWaiting = ovUnseen = 0;
+    ovWorking = ovWaiting = ovUnseen = 0; prepMode = false;
     goalR = 255; goalG = 122; goalB = 69;      // back to Tangerine (a usage or meeting colour would be stale)
   }
   if (!offline || demo) return;
@@ -444,6 +462,8 @@ static void handleLine(String ln, bool fromNet = false) {
     say("ok colour %06lX", c);
     return;
   }
+  if (cmd == 'X') { tapPending = true; return; }     // pretend the glass was tapped (for testing)
+  if (cmd == 'p') { prepMode = arg.toInt() != 0; say("ok prep=%d", prepMode ? 1 : 0); return; }   // meeting countdown running?
   if (cmd == '?') return reply();
   say("err unknown command");
 }
@@ -532,18 +552,19 @@ void loop() {
   pollSerial();
   pollNet();
   if (!A.ok) { delay(100); return; }
-  uint32_t now = millis();
   if (tapPending) {
     tapPending = false;
     say("tap");                                    // the bridge decides what a tap means for Claude
     playEvent("tap");                              // he reacts in every mood (the bridge may then move him on)
   }
+  uint32_t now = millis();                         // read after the tap: a gag started this pass must not look old
   runDemo(now);
   runOffline(now);
   autoBehaviour(now);
   backlight(now);
 
-  uint32_t tick = (now - seqStart) * A.fps / 1000;
+  int32_t age = int32_t(now - seqStart);         // signed: something started after 'now' is age 0, not 49 days
+  uint32_t tick = age > 0 ? uint32_t(age) * A.fps / 1000 : 0;
   if (A.kind[curSeq] != LOOP && tick >= A.len[curSeq]) { settle(A.to[curSeq]); tick = 0; }
   uint32_t pos = A.kind[curSeq] == LOOP ? tick % A.len[curSeq] : min<uint32_t>(tick, A.len[curSeq] - 1);
   uint16_t idx = rd16(A.seq[curSeq] + 2 * pos);
