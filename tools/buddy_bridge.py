@@ -78,6 +78,7 @@ FIDGET_EVERY = (5 * 60, 15 * 60)
 # for a minute (bridge crashed, Mac asleep, USB power only) he goes his own way: idle and fidgeting,
 # asleep at night, with a little unplugged-cable mark. The heartbeat also tells him the time.
 HEARTBEAT_EVERY = 15
+NET_PORT = 4210                                    # the board's command port on Wi-Fi (tools/wifi_setup.py)
 STATE_FILE = os.path.join(HOME, "state.json")     # sessions etc. survive a bridge restart
 
 os.makedirs(HOME, exist_ok=True)
@@ -90,38 +91,99 @@ if sys.stderr.isatty():          # under launchd stderr is bridge.out, which onl
     log.addHandler(logging.StreamHandler())
 
 
+def read_config():
+    try:
+        with open(CONFIG_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 class Device:
-    """Owns the serial port; reconnects when the board is unplugged or reboots."""
+    """Owns the link to the board: USB serial when it's plugged in, otherwise Wi-Fi (TCP to
+    lump.local:4210, set up with tools/wifi_setup.py, which stores "lump_token" in config.json).
+    Reconnects when the board is unplugged, reboots or drops off the network, and moves back to
+    USB as soon as a cable appears."""
+
+    USB_CHECK = 5                      # while on Wi-Fi, look for a USB cable this often (seconds)
 
     def __init__(self, on_ready, on_line=None):
         self.ser, self.lock, self.on_ready, self.on_line = None, threading.Lock(), on_ready, on_line
+        self.link, self._last_err = None, {}
         threading.Thread(target=self._run, daemon=True).start()
 
     @property
     def connected(self):
         return self.ser is not None
 
+    @staticmethod
+    def usb_ports():
+        return sorted(glob.glob("/dev/cu.usbmodem*"))
+
+    def _targets(self):
+        if os.environ.get("DESKBUDDY_PORT"):
+            return [os.environ["DESKBUDDY_PORT"]]
+        cfg = read_config()
+        net = [f"socket://{cfg.get('lump_host') or 'lump.local'}:{NET_PORT}"] if cfg.get("lump_token") else []
+        return self.usb_ports() + net
+
+    def _fail(self, p, e):
+        msg = str(e)
+        if self._last_err.get(p) != msg:   # a missing board is retried every few seconds: say it once
+            self._last_err[p] = msg
+            log.info("can't open %s: %s", p, msg)
+
     def _open(self):
-        ports = [os.environ["DESKBUDDY_PORT"]] if os.environ.get("DESKBUDDY_PORT") else sorted(glob.glob("/dev/cu.usbmodem*"))
-        for p in ports:
+        for p in self._targets():
             try:
-                s = serial.Serial(); s.port, s.baudrate, s.timeout = p, 115200, 0.3
-                s.dtr = False; s.rts = False      # don't reset the board when opening
-                s.open()
+                if p.startswith("socket://"):
+                    import socket as so
+                    # look up lump.local as IPv4 only: a general lookup waits 5 s for an IPv6
+                    # answer the board never gives
+                    host, port = p[len("socket://"):].rsplit(":", 1)
+                    ip = so.getaddrinfo(host, int(port), so.AF_INET, so.SOCK_STREAM)[0][4][0]
+                    s = serial.serial_for_url(f"socket://{ip}:{port}", timeout=0.3)
+                    sock = getattr(s, "_socket", None)
+                    if sock:                   # notice a board that vanished from the network
+                        sock.setsockopt(so.SOL_SOCKET, so.SO_KEEPALIVE, 1)
+                        for opt, v in (("TCP_KEEPALIVE", 10), ("TCP_KEEPIDLE", 10), ("TCP_KEEPINTVL", 5), ("TCP_KEEPCNT", 3)):
+                            if hasattr(so, opt):
+                                try: sock.setsockopt(so.IPPROTO_TCP, getattr(so, opt), v)
+                                except OSError: pass
+                    s.write(f"k {read_config().get('lump_token', '')}\n".encode())
+                    self.link = "wifi"
+                else:
+                    s = serial.Serial(); s.port, s.baudrate, s.timeout = p, 115200, 0.3
+                    s.dtr = False; s.rts = False      # don't reset the board when opening
+                    s.open()
+                    self.link = "usb"
+                self._last_err.pop(p, None)
                 log.info("connected to %s", p)
                 return s
             except Exception as e:
-                log.info("can't open %s: %s", p, e)
+                self._fail(p, e)
         return None
 
+    def _drop(self, why):
+        log.info("%s", why)
+        with self.lock:
+            try: self.ser.close()
+            except Exception: pass
+            self.ser, self.link = None, None
+
     def _run(self):
-        buf = b""
+        buf, usb_checked = b"", 0.0
         while True:
             if not self.ser:
+                buf = b""
                 self.ser = self._open()
                 if not self.ser:
                     time.sleep(3); continue
                 time.sleep(0.3); self._call(self.on_ready)
+            if self.link == "wifi" and time.time() - usb_checked > self.USB_CHECK:
+                usb_checked = time.time()
+                if self.usb_ports() and not os.environ.get("DESKBUDDY_PORT"):
+                    self._drop("USB cable found: switching from Wi-Fi"); continue
             try:
                 buf += self.ser.read(256)
                 while b"\n" in buf:
@@ -134,11 +196,10 @@ class Device:
                         self._call(self.on_ready)
                     elif text == "tap" and self.on_line:
                         self._call(self.on_line, text)
+                    elif text == "err pairing":
+                        log.info("the board refused our pairing token: run tools/wifi_setup.py again")
             except Exception as e:
-                log.info("serial lost: %s", e)
-                try: self.ser.close()
-                except Exception: pass
-                self.ser = None
+                self._drop(f"{self.link or 'link'} lost: {e}")
 
     @staticmethod
     def _call(fn, *a):
@@ -797,7 +858,7 @@ class Buddy:
         with self.lock:
             now = time.time()
             app = getattr(self, "app", None)
-            return {"mood": self.mood_locked(now), "sent": self.sent_mood, "counts": self.counts_locked(now), "device": self.dev.connected,
+            return {"mood": self.mood_locked(now), "sent": self.sent_mood, "counts": self.counts_locked(now), "device": self.dev.connected, "link": getattr(self.dev, "link", None),
                     "colour": self.colour(now), "usage": self.usage,
                     "sound": bool(self.sounds.settings().get("enabled")),
                     "next_meeting": self.next_meeting(now),

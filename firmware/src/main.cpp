@@ -19,18 +19,32 @@
 //   h <secs>          heartbeat from the bridge, with the local time of day (seconds since midnight);
 //                     no reply. Any command counts as hearing from the bridge.
 //   ?                 report state
+//   W                 Wi-Fi status: connected or not, IP, signal, where the clock comes from
+//   w <ssid>\t<password>\t<token>\t<tz>   save Wi-Fi details (USB only; tools/wifi_setup.py
+//                     sends this so the password never passes through the bridge or its log),
+//                     then restart. "w" alone forgets them.
 // The board prints "tap" when the glass is tapped (and giggles itself when that makes sense).
 //
 // On his own: with no word from the bridge for a minute (or since boot) he's "offline": he
 // drops what he was showing, idles and fidgets (asleep at night if a heartbeat ever told him the
 // time), and shows a small unplugged-cable mark in the bottom-right corner. Just powered from a
 // charger, he lives like this. When the bridge speaks again he prints "resync" so it resends.
+//
+// Wi-Fi (once set up): he joins your network as lump.local and takes the same commands over TCP
+// port 4210, so the bridge can drive him without a USB data cable. A connection must start with
+// "k <token>" (the pairing token from setup) or it's dropped. Replies go to USB and to the
+// network client. He also sets his clock from the internet, so he sleeps at night on his own.
 // On its own the device also: fidgets every minute or so while asleep, escalates "alert" to
 // "waiting" after 45 s, slides "working" into "longhaul" after 10 min, and dims at night.
 
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
 #include <Wire.h>
+#include <WiFi.h>
+#include <ESPmDNS.h>
+#include <Preferences.h>
+#include <time.h>
+#include <stdarg.h>
 
 constexpr int PIN_SCLK = 40, PIN_MOSI = 41, PIN_DC = 38, PIN_CS = 39, PIN_RST = 42, PIN_BL = 20;
 constexpr bool PRISM_MIRROR = true;  // rotations 4–7 are mirrored for the prism
@@ -284,6 +298,18 @@ static void imuTask(void*) {
   }
 }
 
+// ---------- talking back: USB, and the Wi-Fi client if there is one ----------
+constexpr uint16_t NET_PORT = 4210;
+static String wifiSsid, netToken, tzRule;     // from flash (Preferences "lump"); password stays there
+static bool wifiStarted = false, mdnsUp = false, netAuthed = false;
+static WiFiServer server(NET_PORT);
+static WiFiClient net;
+static void say(const char* fmt, ...) {
+  char b[256]; va_list ap; va_start(ap, fmt); vsnprintf(b, sizeof b, fmt, ap); va_end(ap);
+  Serial.println(b);
+  if (netAuthed && net.connected()) net.println(b);
+}
+
 // ---------- on his own: no bridge ----------
 static uint32_t lastHost = 0, clockAt = 0;
 static int32_t clockBase = -1;                 // seconds since local midnight at clockAt; -1 = unknown
@@ -291,6 +317,8 @@ static bool hostSeen = false, offline = true;  // offline until the bridge says 
 static int ovWorking = 0, ovWaiting = 0, ovUnseen = 0;
 static bool hostAlive(uint32_t now) { return hostSeen && now - lastHost < HOST_TIMEOUT_MS; }
 static bool nightNow(uint32_t now) {
+  struct tm t;                                 // the internet's clock first, then the bridge's
+  if (tzRule.length() && getLocalTime(&t, 0)) return t.tm_hour >= NIGHT_FROM || t.tm_hour < NIGHT_UNTIL;
   if (clockBase < 0) return false;
   uint32_t h = ((clockBase + (now - clockAt) / 1000) % 86400) / 3600;
   return h >= NIGHT_FROM || h < NIGHT_UNTIL;
@@ -298,7 +326,7 @@ static bool nightNow(uint32_t now) {
 static void heardFromHost() {
   bool was = offline;
   lastHost = millis(); hostSeen = true; offline = false;
-  if (was) Serial.println("resync");           // the bridge resends mood, colour and corner extras
+  if (was) say("resync");           // the bridge resends mood, colour and corner extras
 }
 static void runOffline(uint32_t now) {
   if (!offline && !hostAlive(now)) {           // lost the bridge: forget what it last told us
@@ -362,19 +390,29 @@ static void drawOverlay(uint32_t now) {
 
 // ---------- serial ----------
 static void reply() {
-  Serial.printf("ok mode=%s target=%s playing=%s(%s) fps=%.1f frames=%u seqs=%u\n",
+  say("ok mode=%s target=%s playing=%s(%s) fps=%.1f frames=%u seqs=%u",
     demo ? "demo" : offline ? "offline" : "direct", A.moodName[target].c_str(), A.name[curSeq].c_str(),
     A.kind[curSeq] == LOOP ? "loop" : A.kind[curSeq] == TRANS ? "transition" : "event", fps, A.nFrames, A.nSeqs);
 }
-static void handleLine(String ln) {
+static void setWifi(String a);
+static void wifiReport();
+static void handleLine(String ln, bool fromNet = false) {
   ln.trim(); if (!ln.length()) return;
-  char cmd = ln[0]; String arg = ln.substring(1); arg.trim(); arg.toLowerCase();
+  if (fromNet && !netAuthed) {                 // a network client must pair first
+    if (netToken.length() >= 8 && ln == "k " + netToken) { netAuthed = true; net.println("ok paired"); heardFromHost(); }
+    else { net.println("err pairing"); net.stop(); }
+    return;
+  }
+  char cmd = ln[0];
+  if (cmd == 'w') { if (fromNet) say("err w is USB only"); else setWifi(ln.substring(1)); return; }
+  if (cmd == 'W') return wifiReport();
+  String arg = ln.substring(1); arg.trim(); arg.toLowerCase();
   heardFromHost();
   if (cmd == 'h') { long s = arg.toInt(); if (s >= 0 && s < 86400) { clockBase = s; clockAt = millis(); } return; }
   if (cmd == 's') {
     if (arg == "demo" || arg == "cycle") { demo = true; demoNext = 0; return reply(); }
     int m = moodIndex(arg);
-    if (m < 0) { Serial.println("err unknown mood"); return; }
+    if (m < 0) { say("err unknown mood"); return; }
     // repeating the current mood is a no-op, so the bridge can re-assert its mood without
     // restarting the loop or undoing an escalation (alert -> waiting) the board made itself
     // (night is chosen by the bridge, so "s idle" while at night does wake him)
@@ -386,32 +424,89 @@ static void handleLine(String ln) {
   }
   if (cmd == 'e') {
     demo = false;
-    if (!playEvent(arg)) { Serial.println("err unknown event"); return; }
+    if (!playEvent(arg)) { say("err unknown event"); return; }
     return reply();
   }
   if (cmd == 'o') {
     int w = 0, a = 0, u = 0;
     sscanf(arg.c_str(), "%d %d %d", &w, &a, &u);
     ovWorking = max(0, w); ovWaiting = max(0, a); ovUnseen = max(0, u); lastFrame = -1;
-    Serial.printf("ok overlay working=%d waiting=%d unseen=%d\n", ovWorking, ovWaiting, ovUnseen);
+    say("ok overlay working=%d waiting=%d unseen=%d", ovWorking, ovWaiting, ovUnseen);
     return;
   }
-  if (cmd == 'i') { Serial.printf("ok imu=%s peak=%.2fg taps=%lu threshold=%.2fg\n", imuAddr ? "on" : "missing", (float)peakJolt, (unsigned long)tapCount, (float)tapThreshold); return; }
-  if (cmd == 'T') { float t = arg.toFloat(); if (t > 0.05f && t < 4) tapThreshold = t; Serial.printf("ok threshold=%.2fg\n", (float)tapThreshold); return; }
+  if (cmd == 'i') { say("ok imu=%s peak=%.2fg taps=%lu threshold=%.2fg", imuAddr ? "on" : "missing", (float)peakJolt, (unsigned long)tapCount, (float)tapThreshold); return; }
+  if (cmd == 'T') { float t = arg.toFloat(); if (t > 0.05f && t < 4) tapThreshold = t; say("ok threshold=%.2fg", (float)tapThreshold); return; }
   if (cmd == 'c') {
     if (arg.startsWith("#")) arg = arg.substring(1);
-    if (arg.length() != 6) { Serial.println("err bad colour"); return; }
+    if (arg.length() != 6) { say("err bad colour"); return; }
     long c = strtol(arg.c_str(), nullptr, 16);
     goalR = (c >> 16) & 255; goalG = (c >> 8) & 255; goalB = c & 255;
-    Serial.printf("ok colour %06lX\n", c);
+    say("ok colour %06lX", c);
     return;
   }
   if (cmd == '?') return reply();
-  Serial.println("err unknown command");
+  say("err unknown command");
 }
 static void pollSerial() {
   static String buf;
-  while (Serial.available()) { char ch = Serial.read(); if (ch == '\n' || ch == '\r') { if (buf.length()) handleLine(buf); buf = ""; } else if (buf.length() < 64) buf += ch; }
+  while (Serial.available()) { char ch = Serial.read(); if (ch == '\n' || ch == '\r') { if (buf.length()) handleLine(buf); buf = ""; } else if (buf.length() < 240) buf += ch; }
+}
+
+// ---------- Wi-Fi ----------
+static void wifiBegin() {
+  Preferences pr; pr.begin("lump", true);
+  wifiSsid = pr.getString("ssid", ""); String pass = pr.getString("pass", "");
+  netToken = pr.getString("token", ""); tzRule = pr.getString("tz", "");
+  pr.end();
+  if (!wifiSsid.length()) { WiFi.mode(WIFI_OFF); Serial.println("wifi not set up"); return; }
+  WiFi.mode(WIFI_STA); WiFi.setHostname("lump"); WiFi.setAutoReconnect(true);
+  WiFi.begin(wifiSsid.c_str(), pass.c_str());
+  if (tzRule.length()) configTzTime(tzRule.c_str(), "pool.ntp.org", "time.apple.com");
+  server.begin(); server.setNoDelay(true);
+  wifiStarted = true;
+  Serial.printf("wifi joining %s\n", wifiSsid.c_str());
+}
+// "w <ssid>\t<password>\t<token>\t<tz>" saves and restarts; "w" alone forgets
+static void setWifi(String a) {
+  if (a.startsWith(" ")) a = a.substring(1);
+  Preferences pr; pr.begin("lump", false);
+  if (!a.length()) { pr.clear(); pr.end(); say("ok wifi forgotten, restarting"); Serial.flush(); delay(300); ESP.restart(); }
+  String f[4]; int n = 0, from = 0;
+  for (int i = 0; i <= (int)a.length() && n < 4; i++)
+    if (i == (int)a.length() || a[i] == '\t') { f[n++] = a.substring(from, i); from = i + 1; }
+  if (n < 3 || !f[0].length() || f[2].length() < 8) { pr.end(); say("err use: w <ssid> TAB <password> TAB <token> [TAB <tz>]"); return; }
+  pr.putString("ssid", f[0]); pr.putString("pass", f[1]); pr.putString("token", f[2]);
+  if (n >= 4 && f[3].length()) pr.putString("tz", f[3]);
+  pr.end();
+  say("ok wifi saved ssid=%s, restarting", f[0].c_str()); Serial.flush(); delay(300); ESP.restart();
+}
+static void wifiReport() {
+  if (!wifiStarted) return say("ok wifi=off");
+  struct tm t; bool ntp = tzRule.length() && getLocalTime(&t, 0);
+  bool up = WiFi.status() == WL_CONNECTED;
+  say("ok wifi=%s ssid=%s ip=%s rssi=%d clock=%s client=%s", up ? "connected" : "joining", wifiSsid.c_str(),
+      up ? WiFi.localIP().toString().c_str() : "-", up ? WiFi.RSSI() : 0,
+      ntp ? "internet" : clockBase >= 0 ? "bridge" : "none", netAuthed && net.connected() ? "paired" : "none");
+}
+static void pollNet() {
+  if (!wifiStarted) return;
+  static uint32_t lastCheck = 0; static String buf;
+  uint32_t now = millis();
+  if (now - lastCheck > 1000) {                // announce lump.local whenever we're on the network
+    lastCheck = now;
+    bool up = WiFi.status() == WL_CONNECTED;
+    if (up && !mdnsUp) { mdnsUp = MDNS.begin("lump"); if (mdnsUp) { MDNS.addService("deskbuddy", "tcp", NET_PORT); Serial.printf("wifi up %s\n", WiFi.localIP().toString().c_str()); } }
+    else if (!up && mdnsUp) { MDNS.end(); mdnsUp = false; }
+  }
+  WiFiClient c = server.accept();
+  if (c) { if (net) net.stop(); net = c; net.setNoDelay(true); netAuthed = false; buf = ""; }  // newest wins
+  if (!net) return;
+  if (!net.connected()) { net.stop(); netAuthed = false; return; }
+  while (net.available()) {
+    char ch = net.read();
+    if (ch == '\n' || ch == '\r') { if (buf.length()) handleLine(buf, true); buf = ""; if (!net) return; }
+    else if (buf.length() < 240) buf += ch;
+  }
 }
 
 void setup() {
@@ -430,15 +525,17 @@ void setup() {
   if (imuInit()) { xTaskCreatePinnedToCore(imuTask, "imu", 4096, nullptr, 2, nullptr, 0); Serial.println("imu ready"); }
   else Serial.println("imu not found");
   curMood = target = 0; startSeq(A.loopOf[0]); loopSince = millis();
+  wifiBegin();
 }
 
 void loop() {
   pollSerial();
+  pollNet();
   if (!A.ok) { delay(100); return; }
   uint32_t now = millis();
   if (tapPending) {
     tapPending = false;
-    Serial.println("tap");                         // the bridge decides what a tap means for Claude
+    say("tap");                                    // the bridge decides what a tap means for Claude
     playEvent("tap");                              // he reacts in every mood (the bridge may then move him on)
   }
   runDemo(now);

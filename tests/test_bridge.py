@@ -223,10 +223,37 @@ class SavedState(BridgeTest):
         self.assertEqual(os.path.getmtime(bridge.STATE_FILE), m - 100)
 
 
-class DeviceCallbacks(unittest.TestCase):
+class DeviceLinks(unittest.TestCase):
+    def device(self):
+        d = bridge.Device.__new__(bridge.Device)               # no thread, no real ports
+        d._last_err = {}
+        return d
+
+    def write_config(self, cfg):
+        with open(bridge.CONFIG_FILE, "w") as f:
+            json.dump(cfg, f)
+        self.addCleanup(lambda: os.path.exists(bridge.CONFIG_FILE) and os.remove(bridge.CONFIG_FILE))
+
     def test_callback_errors_are_contained(self):
         def bad(): raise RuntimeError("boom")
         bridge.Device._call(bad)                                # must not raise
+
+    def test_usb_first_then_wifi_when_paired(self):
+        self.write_config({"lump_token": "abcdef123456"})
+        with mock.patch.object(bridge.Device, "usb_ports", staticmethod(lambda: ["/dev/cu.usbmodem1"])):
+            self.assertEqual(self.device()._targets(), ["/dev/cu.usbmodem1", "socket://lump.local:4210"])
+
+    def test_no_wifi_without_pairing(self):
+        self.write_config({"calendar_ics": "x"})
+        with mock.patch.object(bridge.Device, "usb_ports", staticmethod(lambda: [])):
+            self.assertEqual(self.device()._targets(), [])
+
+    def test_repeated_failures_are_logged_once(self):
+        d = self.device()
+        with self.assertLogs("bridge", "INFO") as logs:
+            for _ in range(5): d._fail("socket://lump.local:4210", OSError("no route"))
+            d._fail("socket://lump.local:4210", OSError("refused"))
+        self.assertEqual(len(logs.output), 2)
 
 
 if __name__ == "__main__":
