@@ -1,0 +1,765 @@
+<title>Caretaker Casting</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a casting sheet — a dim desk-at-night ground, one row of controls, then a grid of
+   identical "glass" stages, each holding one candidate acting out the same moment. */
+:root {
+  --bg: #0A0D13;          /* the desk at night, a hint of monitor blue */
+  --surface: #121722;
+  --surface-2: #181F2D;
+  --line: #242D3E;
+  --fg: #E7ECF4;
+  --muted: #8C97AB;
+  --accent: #FFB547;      /* the "needs you" amber, also used for selection */
+  --accent-ink: #1A1206;
+  --font-display: "Fredoka", "Avenir Next Rounded", "Nunito", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+header { display: flex; flex-direction: column; gap: 10px; max-width: 68ch; }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(34px, 6vw, 52px);
+  line-height: 1.02;
+  margin: 0;
+  text-wrap: balance;
+}
+.lede { margin: 0; color: var(--muted); font-size: 16px; }
+.lede strong { color: var(--fg); font-weight: 500; }
+
+/* Controls */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  align-items: flex-end;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.control { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.control > span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.seg { display: flex; flex-wrap: wrap; gap: 4px; background: var(--bg); padding: 4px; border-radius: 10px; border: 1px solid var(--line); }
+.seg button {
+  font: 500 14px/1 var(--font-body);
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.seg button:hover { color: var(--fg); }
+.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
+.seg button[data-state="alert"][aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.legend li { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 14px; }
+.legend b { color: var(--fg); font-weight: 600; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; transform: translateY(-1px); }
+
+/* Grid of candidates */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 262px), 1fr));
+  gap: 18px;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  min-width: 0;
+}
+.card.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+.stage {
+  position: relative;
+  aspect-ratio: 1;
+  max-width: 100%;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #000;
+}
+.stage canvas {
+  display: block;
+  width: 240px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  image-rendering: pixelated;  /* show the panel's real pixel grid */
+}
+body.actual .stage canvas { width: 23.4mm; }  /* 1.3" diagonal → 23.4 mm square */
+
+/* "Through the glass": black disappears, lit pixels glow inside a dark prism */
+body.prism .stage {
+  background:
+    linear-gradient(118deg, transparent 38%, rgba(190, 215, 255, 0.07) 46%, transparent 54%),
+    radial-gradient(120% 90% at 50% 0%, #1A2232 0%, #0C1018 55%, #07090D 100%);
+  box-shadow: inset 0 0 0 1px rgba(200, 220, 255, 0.10), inset 0 18px 30px -18px rgba(200, 220, 255, 0.16);
+}
+body.prism .stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 30%);
+  pointer-events: none;
+}
+body.prism .stage canvas {
+  mix-blend-mode: screen;
+  filter: drop-shadow(0 0 7px var(--glow, rgba(150, 220, 255, 0.35)));
+}
+.chip {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: rgba(10, 13, 19, 0.75);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.chip.alert { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+.meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 4px; }
+.meta h2 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 22px; line-height: 1.1; }
+.meta h2 small { font-family: var(--font-body); font-weight: 400; font-size: 14px; color: var(--muted); margin-left: 4px; }
+.pick {
+  flex: none;
+  font: 500 13px/1 var(--font-body);
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.pick:hover { border-color: var(--muted); }
+.pick[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.blurb { margin: 0; padding: 0 4px; color: var(--muted); font-size: 14px; }
+.specs { margin: 0; padding: 10px 4px 0; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.specs div { display: grid; grid-template-columns: 92px 1fr; gap: 8px; font-size: 13px; }
+.specs dt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding-top: 2px; }
+.specs dd { margin: 0; min-width: 0; }
+
+/* Notes on the glass + shortlist */
+.lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 18px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.panel h3 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 20px; }
+.panel ul { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 6px; font-size: 14px; }
+.panel ul b { color: var(--fg); font-weight: 500; }
+.picks { font-size: 14px; color: var(--muted); margin: 0; }
+.picks b { color: var(--fg); font-weight: 500; }
+textarea {
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  font: 14px/1.5 var(--font-body);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+textarea::placeholder { color: #5E687B; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.primary {
+  font: 600 14px/1 var(--font-body);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 16px;
+  cursor: pointer;
+}
+.status { font-size: 13px; color: var(--muted); }
+#copyFallback { min-height: 70px; font-family: var(--font-mono); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Desk buddy · character exploration · 01</div>
+    <h1>Caretaker Casting</h1>
+    <p class="lede">Eight candidates for the little guy who lives behind your monitor. Each one is drawn at the display's <strong>real 240 × 240 pixels</strong> and acts out the four moments he's there for. Shortlist the ones you like, add notes on what to mix, and copy the result back to Claude.</p>
+  </header>
+
+  <section class="controls" aria-label="Preview controls">
+    <div class="control">
+      <span id="lbl-state">Moment</span>
+      <div class="seg" role="group" aria-labelledby="lbl-state" id="stateSeg">
+        <button type="button" data-state="cycle" aria-pressed="true">Cycle all</button>
+        <button type="button" data-state="idle" aria-pressed="false">Asleep</button>
+        <button type="button" data-state="working" aria-pressed="false">Working</button>
+        <button type="button" data-state="alert" aria-pressed="false">Needs you</button>
+        <button type="button" data-state="done" aria-pressed="false">Done</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-view">View</span>
+      <div class="seg" role="group" aria-labelledby="lbl-view" id="viewSeg">
+        <button type="button" data-view="prism" aria-pressed="true">Through the glass</button>
+        <button type="button" data-view="flat" aria-pressed="false">Flat screen</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-size">Size</span>
+      <div class="seg" role="group" aria-labelledby="lbl-size" id="sizeSeg">
+        <button type="button" data-size="large" aria-pressed="true">Large</button>
+        <button type="button" data-size="actual" aria-pressed="false">About actual size</button>
+      </div>
+    </div>
+  </section>
+
+  <ul class="legend" aria-label="What each moment means">
+    <li><span class="dot" style="background:#6F7C95"></span><span><b>Asleep</b> No Claude sessions running.</span></li>
+    <li><span class="dot" style="background:#5DE0FF"></span><span><b>Working</b> Claude is busy on something.</span></li>
+    <li><span class="dot" style="background:var(--accent)"></span><span><b>Needs you</b> A permission prompt or question is waiting.</span></li>
+    <li><span class="dot" style="background:#7CFF9B"></span><span><b>Done</b> A task just finished.</span></li>
+  </ul>
+
+  <section class="grid" id="grid" aria-label="Character candidates"></section>
+
+  <section class="lower">
+    <div class="panel">
+      <h3>Reading the glass</h3>
+      <ul>
+        <li><b>Black is invisible.</b> In the prism only lit pixels show, so dark eyes on the blob or the orb become see-through holes.</li>
+        <li><b>Thin lines fade.</b> From your chair the screen is about the size of a postage stamp. Bold shapes carry; 1-pixel detail mostly won't.</li>
+        <li><b>Drawn live vs. sprite frames.</b> Characters drawn in code animate smoothly for free. Shaded 3D looks become stored frames, about 115 KB each at full size, so each new pose costs memory.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>Your shortlist</h3>
+      <p class="picks" id="pickList">Nothing shortlisted yet. Use <b>Shortlist</b> on any card.</p>
+      <label for="notes" class="eyebrow">Notes for Claude</label>
+      <textarea id="notes" placeholder="e.g. the moth's wings on the blob's body, but greener. Robot's antenna light is a great status signal."></textarea>
+      <div class="row">
+        <button type="button" class="primary" id="copyBtn">Copy for Claude</button>
+        <span class="status" id="copyStatus" role="status"></span>
+      </div>
+      <textarea id="copyFallback" readonly hidden aria-label="Text to copy"></textarea>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+const TAU = Math.PI * 2;
+const AMB = '#FFB547';
+const DARK = '#0b0e14';
+const STATES = ['idle', 'working', 'alert', 'done'];
+const STATE_LABEL = { idle: 'Asleep', working: 'Working', alert: 'Needs you', done: 'Done' };
+
+/* ---------- drawing helpers ---------- */
+function circ(c, x, y, r) { c.beginPath(); c.arc(x, y, Math.max(0.1, r), 0, TAU); c.fill(); }
+function ell(c, x, y, rx, ry, rot = 0) { c.beginPath(); c.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), rot, 0, TAU); c.fill(); }
+function rr(c, x, y, w, h, r) { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, Math.min(r, w / 2, h / 2))); }
+
+function anim(state, t) {
+  const bp = t % 3.3;
+  const blink = bp < 0.16 ? 1 - Math.abs(bp - 0.08) / 0.08 : 0;
+  return {
+    state, t,
+    mood: { idle: 'sleep', working: 'look', alert: 'wide', done: 'happy' }[state],
+    blink: state === 'working' || state === 'alert' ? blink : 0,
+    look: state === 'working' ? Math.sin(t * 1.8) * 0.9 : 0,
+    lookY: state === 'working' ? 0.4 : 0,
+    bob: state === 'idle' ? Math.sin(t * 1.3) * 2.5
+       : state === 'working' ? Math.sin(t * 7) * 1.2
+       : state === 'alert' ? -Math.abs(Math.sin(t * 5.5)) * 16
+       : -Math.abs(Math.sin(t * 3.2)) * 12,
+    breath: state === 'idle' ? Math.sin(t * 1.3) : Math.sin(t * 3) * 0.4,
+    wave: state === 'alert' ? Math.sin(t * 12) : 0,
+  };
+}
+
+function eyes(c, x, y, gap, r, a, col, o = {}) {
+  const tall = o.tall ?? 1, wide = o.wide ?? 0.75;
+  c.save();
+  c.fillStyle = col; c.strokeStyle = col; c.lineCap = 'round';
+  c.lineWidth = Math.max(3, r * 0.42);
+  for (const s of [-1, 1]) {
+    const ex = x + s * gap / 2 + a.look * r * 0.6, ey = y + a.lookY * r * 0.5;
+    if (a.mood === 'sleep') {
+      c.beginPath(); c.arc(ex, ey - r * 0.5, r * 0.85, 0.2 * Math.PI, 0.8 * Math.PI); c.stroke();
+    } else if (a.mood === 'happy') {
+      c.beginPath(); c.arc(ex, ey + r * 0.55, r * 0.85, 1.2 * Math.PI, 1.8 * Math.PI); c.stroke();
+    } else {
+      const k = a.mood === 'wide' ? 1.2 : 1;
+      const h = Math.max(r * 0.3, r * 2 * k * tall * (1 - a.blink));
+      const w = r * 2 * k * wide;
+      if (o.round) ell(c, ex, ey, w / 2, h / 2);
+      else { rr(c, ex - w / 2, ey - h / 2, w, h, w / 2); c.fill(); }
+      if (o.shine && a.blink < 0.4) {
+        c.fillStyle = o.shine;
+        circ(c, ex - w * 0.18, ey - h * 0.22, Math.max(1.5, r * 0.28));
+        c.fillStyle = col;
+      }
+    }
+  }
+  c.restore();
+}
+
+function zzz(c, x, y, t, col) {
+  c.save(); c.fillStyle = col; c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (let i = 0; i < 3; i++) {
+    const p = (t * 0.45 + i / 3) % 1;
+    c.globalAlpha = Math.sin(p * Math.PI);
+    c.font = `600 ${Math.round(12 + p * 14)}px Fredoka, sans-serif`;
+    c.fillText('z', x + p * 22 + Math.sin(p * 6) * 4, y - p * 40);
+  }
+  c.restore();
+}
+function bang(c, x, y, t) {
+  const s = 1 + 0.12 * Math.sin(t * 10);
+  c.save(); c.translate(x, y); c.scale(s, s);
+  c.fillStyle = AMB; rr(c, -15, -17, 30, 30, 10); c.fill();
+  c.beginPath(); c.moveTo(-6, 11); c.lineTo(-11, 21); c.lineTo(4, 11); c.closePath(); c.fill();
+  c.fillStyle = '#1A1206'; c.font = '700 24px Fredoka, sans-serif';
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('!', 0, -1);
+  c.restore();
+}
+function star(c, x, y, s) {
+  c.beginPath(); c.moveTo(x, y - s);
+  c.quadraticCurveTo(x, y, x + s, y); c.quadraticCurveTo(x, y, x, y + s);
+  c.quadraticCurveTo(x, y, x - s, y); c.quadraticCurveTo(x, y, x, y - s); c.fill();
+}
+function sparkles(c, cx, cy, t, col, rad = 80) {
+  c.save(); c.fillStyle = col;
+  for (let i = 0; i < 6; i++) {
+    const p = (t * 0.9 + i / 6) % 1, ang = i / 6 * TAU + 0.4, r = rad * (0.75 + p * 0.35);
+    star(c, cx + Math.cos(ang) * r, cy + Math.sin(ang) * r * 0.8, 8 * Math.sin(p * Math.PI));
+  }
+  c.restore();
+}
+function dots(c, x, y, t, col) {
+  c.save(); c.fillStyle = col;
+  for (let i = 0; i < 3; i++) {
+    const b = Math.max(0, Math.sin(t * 6 - i * 0.9));
+    c.globalAlpha = 0.4 + 0.6 * b; circ(c, x + (i - 1) * 14, y - b * 6, 4);
+  }
+  c.restore();
+}
+function fx(c, a, col, pos) {
+  if (a.state === 'idle' && pos.z) zzz(c, pos.z[0], pos.z[1], a.t, col);
+  if (a.state === 'working' && pos.d) dots(c, pos.d[0], pos.d[1], a.t, col);
+  if (a.state === 'alert' && pos.b) bang(c, pos.b[0], pos.b[1], a.t);
+  if (a.state === 'done' && pos.s) sparkles(c, pos.s[0], pos.s[1], a.t, col, pos.s[2] || 80);
+}
+
+/* ---------- the candidates ---------- */
+const CHARS = [
+  {
+    id: 'pip', name: 'Pip', kind: 'just eyes', glow: 'rgba(93,224,255,.45)',
+    blurb: 'Two expressive eyes and nothing else. The most minimal option, and the closest to what is on the device right now.',
+    form: 'Eyes only', style: '2D vector', device: 'Drawn live in code. Cheapest, smoothest.',
+    draw(c, a) {
+      const C = '#5DE0FF', y = 118 + a.bob;
+      eyes(c, 120, y, 88, 22, a, C, { tall: 1.1, wide: 0.8 });
+      fx(c, a, C, { z: [168, y - 34], d: [120, y + 54], b: [120, y - 66], s: [120, y, 98] });
+    },
+  },
+  {
+    id: 'mochi', name: 'Mochi', kind: 'the blob', glow: 'rgba(140,245,194,.40)',
+    blurb: 'A soft, squishy body with stubby arms. Squashes when he hops and waves a nub at you when something needs attention.',
+    form: 'Small body', style: '2D vector', device: 'Drawn live in code.',
+    draw(c, a) {
+      const C = '#8CF5C2', cx = 120, by = 200 + a.bob;
+      const w = 64 * (1 + a.breath * 0.03), h = 56 * (1 - a.breath * 0.03), cy = by - h;
+      c.fillStyle = C; c.beginPath();
+      for (let i = 0; i <= 48; i++) {
+        const th = i / 48 * TAU, r = 1 + 0.035 * Math.sin(3 * th + a.t * 2);
+        const x = cx + Math.cos(th) * w * r; let y = cy + Math.sin(th) * h * r;
+        if (y > by) y = by;
+        i ? c.lineTo(x, y) : c.moveTo(x, y);
+      }
+      c.fill();
+      // arms
+      ell(c, cx - w - 2, by - 22, 9, 12, 0.3);
+      if (a.state === 'alert') ell(c, cx + w * 0.9, cy - h * 0.6 + a.wave * 4, 9, 14, 0.6 + a.wave * 0.3);
+      else if (a.state === 'done') { ell(c, cx - w * 0.9, cy - h * 0.6, 9, 14, -0.6); ell(c, cx + w * 0.9, cy - h * 0.6, 9, 14, 0.6); }
+      else ell(c, cx + w + 2, by - 22, 9, 12, -0.3);
+      // cheeks
+      c.fillStyle = 'rgba(255,140,180,.55)'; ell(c, cx - 38, cy + 6, 9, 5); ell(c, cx + 38, cy + 6, 9, 5);
+      eyes(c, cx, cy - 8, 44, 10, a, DARK, { round: true });
+      c.strokeStyle = DARK; c.lineWidth = 4; c.lineCap = 'round'; c.beginPath();
+      if (a.mood === 'happy' || a.mood === 'wide') { c.fillStyle = DARK; c.arc(cx, cy + 6, 9, 0, Math.PI); c.fill(); }
+      else { c.arc(cx, cy + 4, 6, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke(); }
+      fx(c, a, C, { z: [cx + 52, cy - 52], d: [cx, cy - 74], b: [cx + 4, cy - 82], s: [cx, cy + 4, 92] });
+    },
+  },
+  {
+    id: 'lumen', name: 'Lumen', kind: 'the moth', glow: 'rgba(217,198,255,.45)',
+    blurb: 'A fuzzy little moth drawn to your monitor\'s light. Wings folded while you\'re idle, fluttering when he wants you.',
+    form: 'Animal', style: '2D vector', device: 'Drawn live in code.',
+    draw(c, a) {
+      const cx = 120, cy = 132 + a.bob;
+      const flap = a.state === 'idle' ? 0.28 + 0.03 * Math.sin(a.t)
+        : a.state === 'working' ? 0.7 + 0.2 * Math.sin(a.t * 4)
+        : a.state === 'alert' ? 0.45 + 0.55 * Math.abs(Math.sin(a.t * 14))
+        : 0.65 + 0.35 * Math.sin(a.t * 6);
+      for (const s of [-1, 1]) {
+        c.save(); c.translate(cx, cy); c.scale(s * flap, 1);
+        c.fillStyle = '#CDB6FF'; ell(c, 40, -14, 44, 32, -0.5);
+        c.fillStyle = '#A88BFF'; ell(c, 30, 24, 28, 21, 0.55);
+        c.fillStyle = '#7A5CFF'; circ(c, 48, -18, 11);
+        c.fillStyle = '#F4ECFF'; circ(c, 48, -18, 4.5);
+        c.restore();
+      }
+      // antennae
+      const wig = a.state === 'alert' ? Math.sin(a.t * 18) * 5 : Math.sin(a.t * 2) * 2;
+      c.strokeStyle = '#FFF1D6'; c.lineWidth = 3; c.lineCap = 'round';
+      for (const s of [-1, 1]) {
+        c.beginPath(); c.moveTo(cx + s * 8, cy - 40);
+        c.quadraticCurveTo(cx + s * 14, cy - 62, cx + s * (28 + wig), cy - 70); c.stroke();
+        c.fillStyle = '#FFF1D6'; circ(c, cx + s * (28 + wig), cy - 70, 4);
+      }
+      c.fillStyle = '#FFF1D6'; ell(c, cx, cy + 12, 16, 34); circ(c, cx, cy - 24, 22);
+      c.fillStyle = '#F0DDBA'; for (let i = 0; i < 3; i++) ell(c, cx, cy + 4 + i * 12, 15, 2.5);
+      eyes(c, cx, cy - 24, 22, 7, a, DARK, { round: true, shine: '#ffffff', tall: 1.1, wide: 1 });
+      fx(c, a, '#E6D8FF', { z: [cx + 44, cy - 66], d: [cx, cy + 66], b: [cx + 48, cy - 76], s: [cx, cy - 6, 98] });
+    },
+  },
+  {
+    id: 'gill', name: 'Gill', kind: 'the axolotl', glow: 'rgba(255,158,199,.42)',
+    blurb: 'A cheerful axolotl head with frilly gills that ripple with his mood. Permanently smiling, even when he\'s nagging you.',
+    form: 'Animal', style: '2D vector', device: 'Drawn live in code.',
+    draw(c, a) {
+      const cx = 120, cy = 132 + a.bob, P = '#FF9EC7';
+      const speed = a.state === 'alert' ? 14 : a.state === 'idle' ? 1.2 : 4;
+      c.strokeStyle = '#FF5FA2'; c.lineCap = 'round';
+      for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
+        const phi = -0.75 + i * 0.5 + 0.16 * Math.sin(a.t * speed + i * 1.3);
+        const x0 = cx + s * 52, y0 = cy - 18 + i * 14;
+        const x1 = x0 + s * Math.cos(phi) * 34, y1 = y0 + Math.sin(phi) * 34;
+        c.lineWidth = 8; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+        c.lineWidth = 3;
+        for (let k = 1; k <= 3; k++) {
+          const mx = x0 + (x1 - x0) * k / 3.4, my = y0 + (y1 - y0) * k / 3.4;
+          c.beginPath(); c.moveTo(mx, my); c.lineTo(mx + s * 3 - Math.sin(phi) * 7 * s, my - 7); c.stroke();
+        }
+      }
+      c.fillStyle = P; ell(c, cx - 28, cy + 46, 11, 7, 0.4);
+      if (a.state === 'alert') ell(c, cx + 50, cy + 18 + a.wave * 5, 8, 13, -0.6 + a.wave * 0.3);
+      else ell(c, cx + 28, cy + 46, 11, 7, -0.4);
+      ell(c, cx, cy, 64, 46);
+      c.fillStyle = 'rgba(255,95,162,.55)'; ell(c, cx - 40, cy + 14, 10, 6); ell(c, cx + 40, cy + 14, 10, 6);
+      eyes(c, cx, cy - 4, 70, 7, a, DARK, { round: true, shine: '#ffffff', wide: 1 });
+      c.strokeStyle = DARK; c.lineWidth = 4; c.beginPath();
+      const big = a.mood === 'happy' || a.mood === 'wide';
+      c.arc(cx, cy + 4, big ? 20 : 16, 0.2 * Math.PI, 0.8 * Math.PI); c.stroke();
+      fx(c, a, '#FFC4DD', { z: [cx + 56, cy - 58], d: [cx, cy - 68], b: [cx, cy - 74], s: [cx, cy, 100] });
+    },
+  },
+  {
+    id: 'bolt', name: 'Bolt', kind: 'the robot', glow: 'rgba(191,211,255,.40)',
+    blurb: 'A small service robot with a face on a screen and an antenna light that doubles as a status lamp you can read from across the room.',
+    form: 'Robot', style: '2D vector', device: 'Drawn live in code.',
+    draw(c, a) {
+      const cx = 120, by = 206 + a.bob, S = '#BFD3FF', E = '#5DE0FF';
+      const top = by - 130;
+      // legs
+      c.fillStyle = S; rr(c, cx - 30, by - 34, 16, 22, 4); c.fill(); rr(c, cx + 14, by - 34, 16, 22, 4); c.fill();
+      // arms
+      c.strokeStyle = S; c.lineWidth = 6; c.lineCap = 'round';
+      const arm = (x0, y0, x1, y1) => { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); c.fillStyle = S; circ(c, x1, y1, 7); };
+      if (a.state === 'done') { arm(cx - 52, by - 80, cx - 74, top + 8); arm(cx + 52, by - 80, cx + 74, top + 8); }
+      else {
+        arm(cx - 52, by - 80, cx - 68, by - 46);
+        if (a.state === 'alert') arm(cx + 52, by - 80, cx + 78 + a.wave * 8, top + 2);
+        else arm(cx + 52, by - 80, cx + 68, by - 46);
+      }
+      // body
+      c.fillStyle = 'rgba(191,211,255,.16)'; rr(c, cx - 52, top, 104, 96, 18); c.fill();
+      c.strokeStyle = S; c.lineWidth = 6; rr(c, cx - 52, top, 104, 96, 18); c.stroke();
+      c.fillStyle = DARK; rr(c, cx - 38, top + 13, 76, 50, 10); c.fill();
+      eyes(c, cx, top + 38, 36, 10, a, E);
+      // chest progress bar
+      c.strokeStyle = S; c.lineWidth = 2; rr(c, cx - 30, top + 72, 60, 9, 4); c.stroke();
+      const prog = a.state === 'working' ? (a.t * 0.35) % 1 : a.state === 'done' ? 1 : 0;
+      if (prog > 0) { c.fillStyle = a.state === 'done' ? '#7CFF9B' : E; rr(c, cx - 28, top + 74, 56 * prog, 5, 2.5); c.fill(); }
+      // antenna + status lamp
+      c.strokeStyle = S; c.lineWidth = 4; c.beginPath(); c.moveTo(cx, top); c.lineTo(cx, top - 20); c.stroke();
+      const lamp = { idle: '#3A4766', working: E, alert: AMB, done: '#7CFF9B' }[a.state];
+      const on = a.state === 'alert' ? (Math.sin(a.t * 12) > 0 ? 1 : 0.35) : a.state === 'working' ? 0.6 + 0.4 * Math.sin(a.t * 4) : 1;
+      c.save(); c.globalAlpha = on; c.fillStyle = lamp; circ(c, cx, top - 27, 9); c.restore();
+      fx(c, a, '#DCE6FF', { z: [cx + 58, top - 14], b: [cx - 52, top - 22], s: [cx, top + 40, 100] });
+    },
+  },
+  {
+    id: 'tidy', name: 'Tidy', kind: 'the pixel caretaker', glow: 'rgba(110,193,255,.42)',
+    blurb: 'A tiny janitor in chunky pixel art: cap, apron and a broom. Sweeps while Claude works and jumps up and down when you\'re needed.',
+    form: 'Humanoid', style: 'Pixel art', device: 'Hand-placed pixels, scaled up 8×. Tiny and cheap.',
+    draw(c, a) {
+      const p = PIX.ctx; p.clearRect(0, 0, 30, 30);
+      const P = (x, y, w, h, col) => { p.fillStyle = col; p.fillRect(x, y, w, h); };
+      const st = a.state, f = Math.floor(a.t * 4) % 2;
+      const oy = st === 'alert' ? (Math.floor(a.t * 5.5) % 2 ? -2 : 0)
+               : st === 'done' ? (Math.floor(a.t * 3.2) % 2 ? -2 : 0)
+               : st === 'idle' ? Math.floor(a.t * 1.3) % 2 : 0;
+      const X = 11, Y = 9 + oy;
+      const SKIN = '#FFD7A8', CAP = '#FF7A59', SHIRT = '#6EC1FF', APRON = '#E8F1FF', PANTS = '#3F7FD9', SHOE = '#5A6B8C', D = DARK;
+      // body
+      P(X, Y + 7, 8, 6, SHIRT); P(X + 2, Y + 8, 4, 5, APRON);
+      P(X + 1, Y + 13, 2, 3, PANTS); P(X + 5, Y + 13, 2, 3, PANTS);
+      P(X, Y + 16, 3, 1, SHOE); P(X + 5, Y + 16, 3, 1, SHOE);
+      // head + cap
+      P(X, Y, 8, 7, SKIN); P(X, Y - 2, 8, 3, CAP); P(X + 8, Y, 2, 1, CAP);
+      // eyes
+      if (a.mood === 'sleep') { P(X + 1, Y + 4, 2, 1, D); P(X + 5, Y + 4, 2, 1, D); }
+      else if (a.mood === 'happy') { [[1,4],[2,3],[3,4],[4,4],[5,3],[6,4]].forEach(([dx, dy]) => P(X + dx, Y + dy, 1, 1, D)); }
+      else {
+        const lk = st === 'working' ? (Math.sin(a.t * 1.8) > 0.3 ? 1 : Math.sin(a.t * 1.8) < -0.3 ? -1 : 0) : 0;
+        if (a.blink > 0.5) { P(X + 1 + lk, Y + 4, 2, 1, D); P(X + 5 + lk, Y + 4, 2, 1, D); }
+        else if (a.mood === 'wide') { P(X + 1, Y + 2, 2, 3, D); P(X + 5, Y + 2, 2, 3, D); }
+        else { P(X + 2 + lk, Y + 3, 1, 2, D); P(X + 5 + lk, Y + 3, 1, 2, D); }
+      }
+      if (st === 'alert' || st === 'done') P(X + 3, Y + 5, 2, 1, '#C0504D');
+      // arms / props
+      if (st === 'working') {
+        P(X - 1, Y + 8, 1, 4, SKIN); P(X + 8, Y + 8, 2, 1, SKIN);
+        for (let i = 0; i < 8; i++) P(X + 9 + Math.floor(i * 0.45) + (f && i > 4 ? 1 : 0), Y + 7 + i, 1, 1, '#C68A4C');
+        P(X + 11 + f * 2, Y + 15, 4, 2, '#FFE08A');
+        if (f) { P(X + 17, Y + 15, 1, 1, '#8C97AB'); P(X + 18, Y + 13, 1, 1, '#8C97AB'); }
+      } else if (st === 'alert') {
+        P(X - 1, Y + 8, 1, 4, SKIN);
+        const hx = X + 8 + f; P(hx, Y + 3, 1, 5, SKIN); P(hx, Y + 1, 2, 2, SKIN);
+        if (Math.floor(a.t * 6) % 2) { P(X + 12, Y - 8, 5, 7, AMB); P(X + 14, Y - 7, 1, 3, D); P(X + 14, Y - 3, 1, 1, D); }
+      } else if (st === 'done') {
+        P(X - 1, Y + 2, 1, 6, SKIN); P(X + 8, Y + 2, 1, 6, SKIN);
+        const sp = [[4, 6], [24, 8], [3, 18], [25, 19]];
+        sp.forEach(([sx, sy], i) => { if ((i + f) % 2) { P(sx, sy - 1, 1, 3, '#7CFF9B'); P(sx - 1, sy, 3, 1, '#7CFF9B'); } });
+      } else {
+        P(X - 1, Y + 8, 1, 4, SKIN); P(X + 8, Y + 8, 1, 4, SKIN);
+        const zp = Math.floor(a.t * 1.5) % 3;
+        for (let i = 0; i < 2; i++) {
+          const zx = X + 10 + i * 3, zy = Y - 1 - i * 4 - (zp === i ? 1 : 0), z = '#9FB4D9';
+          P(zx, zy, 3, 1, z); P(zx + 1, zy + 1, 1, 1, z); P(zx, zy + 2, 3, 1, z);
+        }
+      }
+      c.imageSmoothingEnabled = false;
+      c.drawImage(PIX.canvas, 0, 0, 240, 240);
+    },
+  },
+  {
+    id: 'sprout', name: 'Sprout', kind: 'the glossy orb', glow: 'rgba(255,170,90,.45)',
+    blurb: 'A shiny, round critter with a leaf on top, shaded to look 3D. Feels the most like a toy sitting inside the glass.',
+    form: 'Small body', style: '3D shaded', device: 'Pre-rendered sprite frames in memory. Richest look, most work per pose.',
+    draw(c, a) {
+      const cx = 120, by = 200 + a.bob, R = 58;
+      const sq = a.state === 'idle' ? a.breath * 0.03 : (a.bob > -2 ? 0.07 : -0.04);
+      const rx = R * (1 + sq), ry = R * (1 - sq), cy = by - ry;
+      c.fillStyle = 'rgba(255,140,60,.22)'; ell(c, cx, 206, rx * 0.8 * (1 + a.bob / 50), 7);
+      c.fillStyle = '#D9622B'; ell(c, cx - 24, by - 2, 14, 7); ell(c, cx + 24, by - 2, 14, 7);
+      // stem + leaf
+      const sway = Math.sin(a.t * (a.state === 'alert' ? 10 : 1.5)) * 0.25;
+      c.strokeStyle = '#7CCB5A'; c.lineWidth = 5; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(cx, cy - ry + 4); c.quadraticCurveTo(cx + 2, cy - ry - 10, cx + 4 + sway * 10, cy - ry - 18); c.stroke();
+      c.fillStyle = '#9BE070'; ell(c, cx + 18 + sway * 12, cy - ry - 20, 16, 7, -0.4 + sway);
+      const g = c.createRadialGradient(cx - rx * 0.35, cy - ry * 0.45, R * 0.08, cx, cy, R);
+      g.addColorStop(0, '#FFF3C4'); g.addColorStop(0.35, '#FFC65C'); g.addColorStop(0.8, '#FF8A3D'); g.addColorStop(1, '#B8471F');
+      c.fillStyle = g; ell(c, cx, cy, rx, ry);
+      c.strokeStyle = 'rgba(255,217,160,.55)'; c.lineWidth = 3;
+      c.beginPath(); c.ellipse(cx, cy, rx - 3, ry - 3, 0, 0.05 * Math.PI, 0.55 * Math.PI); c.stroke();
+      c.fillStyle = 'rgba(255,110,120,.45)'; ell(c, cx - 34, cy + 12, 10, 6); ell(c, cx + 34, cy + 12, 10, 6);
+      eyes(c, cx, cy - 4, 44, 11, a, '#2A1408', { round: true, shine: '#ffffff', tall: 1.15, wide: 0.85 });
+      c.strokeStyle = '#2A1408'; c.lineWidth = 4; c.beginPath();
+      if (a.mood === 'happy' || a.mood === 'wide') { c.fillStyle = '#2A1408'; c.arc(cx, cy + 14, 8, 0, Math.PI); c.fill(); }
+      else { c.arc(cx, cy + 12, 6, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke(); }
+      c.fillStyle = 'rgba(255,255,255,.75)'; ell(c, cx - rx * 0.4, cy - ry * 0.52, 14, 7, -0.5);
+      fx(c, a, '#FFD79A', { z: [cx + 54, cy - 54], d: [cx, cy - ry - 40], b: [cx - 44, cy - ry - 18], s: [cx, cy, 96] });
+    },
+  },
+  {
+    id: 'vec', name: 'Vec', kind: 'the wireframe hologram', glow: 'rgba(124,255,203,.45)',
+    blurb: 'A spinning wireframe head on a projector ring, with scanlines. Leans into the "hologram" idea instead of a cute creature.',
+    form: 'Abstract head', style: 'Line / hologram', device: 'Drawn live in code. Thin lines may fade through the glass.',
+    draw(c, a) {
+      const C = '#7CFFCB', R = 56;
+      const glitch = a.state === 'alert' && Math.sin(a.t * 37) > 0.7 ? 5 : 0;
+      const cx = 120 + glitch, cy = 112 + a.bob * 0.7;
+      const ph = a.t * ({ idle: 0.25, working: 1.6, alert: 0.9, done: 1.1 }[a.state]);
+      c.save();
+      c.strokeStyle = C; c.globalAlpha = 0.25; c.lineWidth = 1.5;
+      c.beginPath(); c.moveTo(cx - 50, 206); c.lineTo(cx - R, cy); c.moveTo(cx + 50, 206); c.lineTo(cx + R, cy); c.stroke();
+      c.globalAlpha = 0.85; c.lineWidth = 2;
+      c.beginPath(); c.ellipse(cx, 206, 52, 9, 0, 0, TAU); c.stroke();
+      c.globalAlpha = 0.55; c.lineWidth = 1.5;
+      for (let i = 0; i < 6; i++) {
+        const ang = ph + i * Math.PI / 6;
+        c.beginPath(); c.ellipse(cx, cy, Math.max(0.5, R * Math.abs(Math.cos(ang))), R, 0, 0, TAU); c.stroke();
+      }
+      for (let j = -2; j <= 2; j++) {
+        const yy = cy + j * R * 0.36, r = Math.sqrt(R * R - (j * R * 0.36) ** 2);
+        c.beginPath(); c.ellipse(cx, yy, r, r * 0.16, 0, 0, TAU); c.stroke();
+      }
+      c.restore();
+      eyes(c, cx, cy - 2, 42, 9, a, C, { tall: 0.7, wide: 1.4 });
+      fx(c, a, C, { z: [cx + 58, cy - 52], d: [cx, cy + 34], b: [cx + 50, cy - 64], s: [cx, cy, 92] });
+      // scanlines knock out every 4th row
+      c.save(); c.globalCompositeOperation = 'destination-out'; c.fillStyle = 'rgba(0,0,0,.45)';
+      for (let y = (Math.floor(a.t * 20) % 4); y < 240; y += 4) c.fillRect(0, y, 240, 1);
+      c.restore();
+    },
+  },
+];
+
+const PIX = (() => { const canvas = document.createElement('canvas'); canvas.width = 30; canvas.height = 30; return { canvas, ctx: canvas.getContext('2d') }; })();
+
+/* ---------- page state ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('caretaker:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('caretaker:' + k, JSON.stringify(v)); } catch {} },
+};
+let mode = 'cycle';
+const picks = new Set(store.get('picks', []));
+
+const grid = document.getElementById('grid');
+const cards = CHARS.map(ch => {
+  const el = document.createElement('article');
+  el.className = 'card';
+  el.style.setProperty('--glow', ch.glow);
+  el.innerHTML = `
+    <div class="stage"><canvas width="240" height="240" role="img" aria-label="${ch.name}, ${ch.kind}"></canvas><span class="chip"></span></div>
+    <div class="meta"><h2>${ch.name}<small>${ch.kind}</small></h2>
+      <button type="button" class="pick" id="pick-${ch.id}" aria-pressed="false">Shortlist</button></div>
+    <p class="blurb">${ch.blurb}</p>
+    <dl class="specs">
+      <div><dt>Form</dt><dd>${ch.form}</dd></div>
+      <div><dt>Style</dt><dd>${ch.style}</dd></div>
+      <div><dt>On device</dt><dd>${ch.device}</dd></div>
+    </dl>`;
+  grid.appendChild(el);
+  const btn = el.querySelector('.pick');
+  btn.addEventListener('click', () => {
+    picks.has(ch.id) ? picks.delete(ch.id) : picks.add(ch.id);
+    store.set('picks', [...picks]); syncPicks();
+  });
+  return { ch, el, btn, ctx: el.querySelector('canvas').getContext('2d'), chip: el.querySelector('.chip') };
+});
+
+function syncPicks() {
+  cards.forEach(({ ch, el, btn }) => {
+    const on = picks.has(ch.id);
+    el.classList.toggle('picked', on);
+    btn.setAttribute('aria-pressed', String(on));
+    btn.textContent = on ? 'Shortlisted' : 'Shortlist';
+  });
+  const list = CHARS.filter(c => picks.has(c.id));
+  const pl = document.getElementById('pickList');
+  pl.innerHTML = list.length
+    ? 'Shortlisted: ' + list.map(c => `<b>${c.name}</b> (${c.kind})`).join(', ')
+    : 'Nothing shortlisted yet. Use <b>Shortlist</b> on any card.';
+}
+syncPicks();
+
+function bindSeg(id, attr, apply) {
+  const seg = document.getElementById(id);
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    apply(b.dataset[attr]);
+  });
+}
+bindSeg('stateSeg', 'state', v => { mode = v; });
+bindSeg('viewSeg', 'view', v => { document.body.classList.toggle('prism', v === 'prism'); });
+bindSeg('sizeSeg', 'size', v => { document.body.classList.toggle('actual', v === 'actual'); });
+document.body.classList.add('prism');
+
+const notes = document.getElementById('notes');
+notes.value = store.get('notes', '');
+notes.addEventListener('input', () => store.set('notes', notes.value));
+
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const list = CHARS.filter(c => picks.has(c.id));
+  const text = [
+    'Desk buddy shortlist: ' + (list.length ? list.map(c => `${c.name} (${c.kind})`).join(', ') : 'none yet'),
+    notes.value.trim() ? 'Notes: ' + notes.value.trim() : '',
+  ].filter(Boolean).join('\n');
+  const status = document.getElementById('copyStatus');
+  const fb = document.getElementById('copyFallback');
+  const fallback = () => { fb.hidden = false; fb.value = text; fb.focus(); fb.select(); status.textContent = 'Select-all and copy the text below.'; };
+  try {
+    navigator.clipboard.writeText(text).then(() => { status.textContent = 'Copied. Paste it into your chat with Claude.'; fb.hidden = true; }, fallback);
+  } catch { fallback(); }
+});
+
+/* ---------- animation ---------- */
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const CYCLE = 3.6;
+let last = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (reduced && now - last < 400) return;
+  last = now;
+  const t = now / 1000;
+  const state = mode === 'cycle' ? STATES[Math.floor(t / CYCLE) % 4] : mode;
+  for (const k of cards) {
+    const c = k.ctx;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+    c.fillStyle = '#000'; c.fillRect(0, 0, 240, 240);
+    k.ch.draw(c, anim(state, t));
+    if (k.chip.dataset.s !== state) {
+      k.chip.dataset.s = state; k.chip.textContent = STATE_LABEL[state];
+      k.chip.classList.toggle('alert', state === 'alert');
+    }
+  }
+}
+requestAnimationFrame(frame);
+})();
+</script>

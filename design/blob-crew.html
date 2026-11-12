@@ -1,0 +1,573 @@
+<title>Blob Crew</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: third casting sheet in the series — same dim desk ground and glass stages,
+   six one-colour 2D characters sharing one expressive face kit. */
+:root {
+  --bg: #090C12;
+  --surface: #11161F;
+  --surface-2: #171E2B;
+  --line: #222B3B;
+  --fg: #E7ECF4;
+  --muted: #8C97AB;
+  --accent: #FFB547;
+  --accent-ink: #1A1206;
+  --font-display: "Fredoka", "Avenir Next Rounded", "Nunito", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+.wrap {
+  max-width: 1220px; margin: 0 auto;
+  padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 28px;
+}
+header { display: flex; flex-direction: column; gap: 10px; max-width: 70ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(34px, 6vw, 52px); line-height: 1.02; margin: 0; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); font-size: 16px; }
+.lede strong { color: var(--fg); font-weight: 500; }
+.controls { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.control { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.control > span { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; background: var(--bg); padding: 4px; border-radius: 10px; border: 1px solid var(--line); }
+.seg button { font: 500 14px/1 var(--font-body); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 9px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.seg button:hover { color: var(--fg); }
+.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
+.seg button[data-state="alert"][aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+.sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 18px; }
+.card { display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; min-width: 0; }
+.card.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.stage { position: relative; aspect-ratio: 1; max-width: 100%; border-radius: 10px; display: grid; place-items: center; overflow: hidden; background: #000; }
+.stage canvas { display: block; width: 264px; max-width: 100%; aspect-ratio: 1; image-rendering: pixelated; }
+body.actual .stage canvas { width: 23.4mm; }
+body.prism .stage {
+  background:
+    linear-gradient(118deg, transparent 38%, rgba(190, 215, 255, 0.07) 46%, transparent 54%),
+    radial-gradient(120% 90% at 50% 0%, #19212F 0%, #0B0F16 55%, #06080C 100%);
+  box-shadow: inset 0 0 0 1px rgba(200, 220, 255, 0.10), inset 0 18px 30px -18px rgba(200, 220, 255, 0.16);
+}
+body.prism .stage::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 30%); pointer-events: none; }
+body.prism .stage canvas { mix-blend-mode: screen; filter: drop-shadow(0 0 7px var(--glow, rgba(150, 220, 255, 0.3))); }
+.chip { position: absolute; left: 8px; top: 8px; font: 500 11px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 7px; border-radius: 6px; background: rgba(9, 12, 18, 0.75); color: var(--muted); border: 1px solid var(--line); }
+.chip.alert { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 4px; }
+.meta h2 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 22px; line-height: 1.1; }
+.meta h2 small { font-family: var(--font-body); font-weight: 400; font-size: 14px; color: var(--muted); margin-left: 6px; }
+.pick { flex: none; font: 500 13px/1 var(--font-body); color: var(--fg); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
+.pick:hover { border-color: var(--muted); }
+.pick[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.blurb { margin: 0; padding: 0 4px; color: var(--muted); font-size: 14px; }
+.lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 18px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.panel h3 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 20px; }
+.beats { margin: 0; display: grid; gap: 10px; }
+.beats div { display: grid; grid-template-columns: 96px 1fr; gap: 10px; font-size: 14px; color: var(--muted); }
+.beats dt { color: var(--fg); font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
+.beats dd { margin: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; transform: translateY(-1px); }
+.note { margin: 0; font-size: 14px; color: var(--muted); }
+.picks { font-size: 14px; color: var(--muted); margin: 0; }
+.picks b { color: var(--fg); font-weight: 500; }
+textarea { width: 100%; min-height: 90px; resize: vertical; font: 14px/1.5 var(--font-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+textarea::placeholder { color: #5E687B; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.primary { font: 600 14px/1 var(--font-body); background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 11px 16px; cursor: pointer; }
+.status { font-size: 13px; color: var(--muted); }
+#copyFallback { min-height: 70px; font-family: var(--font-mono); font-size: 12px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Desk buddy · character exploration · 03</div>
+    <h1>Blob Crew</h1>
+    <p class="lede">Six flat, one-colour little guys in different shapes, all sharing a new, much more expressive face: big glossy eyes, eyebrows that do the acting, and proper sleepy, focused, panicked and delighted expressions. Drawn at the display's <strong>real 240 × 240 pixels</strong>.</p>
+  </header>
+
+  <section class="controls" aria-label="Preview controls">
+    <div class="control">
+      <span id="lbl-state">Moment</span>
+      <div class="seg" role="group" aria-labelledby="lbl-state" id="stateSeg">
+        <button type="button" data-state="cycle" aria-pressed="true">Cycle all</button>
+        <button type="button" data-state="idle" aria-pressed="false">Asleep</button>
+        <button type="button" data-state="working" aria-pressed="false">Working</button>
+        <button type="button" data-state="alert" aria-pressed="false">Needs you</button>
+        <button type="button" data-state="done" aria-pressed="false">Done</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-tint">Colour</span>
+      <div class="seg" role="group" aria-labelledby="lbl-tint" id="tintSeg">
+        <button type="button" data-tint="own" aria-pressed="true">Each its own</button>
+        <button type="button" data-tint="#8CF5C2" aria-pressed="false"><span class="sw" style="background:#8CF5C2"></span>Mint</button>
+        <button type="button" data-tint="#7FD4FF" aria-pressed="false"><span class="sw" style="background:#7FD4FF"></span>Sky</button>
+        <button type="button" data-tint="#FFB38A" aria-pressed="false"><span class="sw" style="background:#FFB38A"></span>Peach</button>
+        <button type="button" data-tint="#C9A8FF" aria-pressed="false"><span class="sw" style="background:#C9A8FF"></span>Lilac</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-view">View</span>
+      <div class="seg" role="group" aria-labelledby="lbl-view" id="viewSeg">
+        <button type="button" data-view="prism" aria-pressed="true">Through the glass</button>
+        <button type="button" data-view="flat" aria-pressed="false">Flat screen</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-size">Size</span>
+      <div class="seg" role="group" aria-labelledby="lbl-size" id="sizeSeg">
+        <button type="button" data-size="large" aria-pressed="true">Large</button>
+        <button type="button" data-size="actual" aria-pressed="false">About actual size</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid" id="grid" aria-label="Character candidates"></section>
+
+  <section class="lower">
+    <div class="panel">
+      <h3>The face kit</h3>
+      <dl class="beats">
+        <div><dt><span class="dot" style="background:#6F7C95"></span>Asleep</dt><dd>Content closed eyes with little lashes, a tiny "o" mouth and a snot bubble that slowly inflates and pops.</dd></div>
+        <div><dt><span class="dot" style="background:#5DE0FF"></span>Working</dt><dd>Half-lidded focus eyes reading left to right, one eyebrow cocked, tongue poking out the side in concentration.</dd></div>
+        <div><dt><span class="dot" style="background:var(--accent)"></span>Needs you</dt><dd>Huge shiny eyes and worried brows, hopping and waving with an open "ah!" mouth and a sweat drop. Eyes squeeze to &gt;&lt; every time he lands.</dd></div>
+        <div><dt><span class="dot" style="background:#7CFF9B"></span>Done</dt><dd>Star eyes first, then happy crescent eyes with rosy cheeks, a big open grin and sparkles.</dd></div>
+      </dl>
+      <p class="note">Through the glass, the black face features turn see-through, so his eyes and mouth read as cut-outs of light, with only the white glints floating in them.</p>
+    </div>
+    <div class="panel">
+      <h3>Your shortlist</h3>
+      <p class="picks" id="pickList">Nothing shortlisted yet. Use <b>Shortlist</b> on any card.</p>
+      <label for="notes" class="eyebrow">Notes for Claude</label>
+      <textarea id="notes" placeholder="e.g. Chonk's body with Noodle's arms. Love the snot bubble. Happy eyes should be bigger."></textarea>
+      <div class="row">
+        <button type="button" class="primary" id="copyBtn">Copy for Claude</button>
+        <span class="status" id="copyStatus" role="status"></span>
+      </div>
+      <textarea id="copyFallback" readonly hidden aria-label="Text to copy"></textarea>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+const TAU = Math.PI * 2;
+const AMB = '#FFB547', F = '#0B0E14', W = '#FFFFFF';
+const STATES = ['idle', 'working', 'alert', 'done'];
+const STATE_LABEL = { idle: 'Asleep', working: 'Working', alert: 'Needs you', done: 'Done' };
+
+/* ---------- helpers ---------- */
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const ease = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const hash = i => { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
+function hexRGB(h) { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function rgba(h, a) { const [r, g, b] = hexRGB(h); return `rgba(${r},${g},${b},${a})`; }
+function mix(h1, h2, k) { const a = hexRGB(h1), b = hexRGB(h2); return '#' + a.map((v, i) => Math.round(v + (b[i] - v) * k).toString(16).padStart(2, '0')).join(''); }
+function circ(c, x, y, r) { c.beginPath(); c.arc(x, y, Math.max(0.1, r), 0, TAU); c.fill(); }
+function ell(c, x, y, rx, ry, rot = 0) { c.beginPath(); c.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), rot, 0, TAU); c.fill(); }
+function rrect(c, x, y, w, h, r) { c.beginPath(); c.roundRect(x, y, w, h, Math.max(0, Math.min(r, w / 2, h / 2))); }
+
+/* ---------- motion per moment ---------- */
+function anim(state, t, st) {
+  const a = { state, t, st, mood: { idle: 'sleep', working: 'focus', alert: 'wide', done: 'happy' }[state],
+    look: 0, lookY: 0, blink: 0, bob: 0, sx: 1, sy: 1, lean: 0, land: false, air: 0, wave: 0, breath: 0 };
+  const bp = t % 3.4, blink = bp < 0.14 ? 1 - Math.abs(bp - 0.07) / 0.07 : 0;
+  if (state === 'idle') { const b = Math.sin(t * 1.4); a.breath = b; a.sy = 1 + 0.035 * b; a.sx = 1 - 0.03 * b; a.lean = 0.035 * Math.sin(t * 0.5); }
+  if (state === 'working') {
+    const r = (t * 0.7) % 1;
+    a.look = r < 0.85 ? -0.8 + (r / 0.85) * 1.6 : 0.8 - ((r - 0.85) / 0.15) * 1.6;
+    a.lookY = 0.35; a.blink = blink; a.bob = Math.sin(t * 9) * 0.8; a.lean = 0.04; a.wave = Math.sin(t * 12);
+  }
+  if (state === 'alert') {
+    const ph = (t * 2.1) % 1, g = Math.sin(ph * Math.PI);
+    a.air = g; a.bob = -g * 20; a.land = g < 0.22;
+    a.sy = a.land ? 1 - 0.13 * (1 - g / 0.22) : 1 + 0.07 * g; a.sx = 2 - a.sy;
+    a.blink = a.land ? 0 : blink; a.lean = 0.06 * Math.sin(t * 4.2); a.wave = Math.sin(t * 16);
+  }
+  if (state === 'done') {
+    const ph = (t * 1.7) % 1, g = Math.sin(ph * Math.PI);
+    a.air = g; a.bob = -g * 14; a.land = g < 0.2;
+    a.sy = a.land ? 1 - 0.1 * (1 - g / 0.2) : 1 + 0.05 * g; a.sx = 2 - a.sy; a.wave = Math.sin(t * 10);
+  }
+  return a;
+}
+
+/* ---------- the face kit ---------- */
+function openEye(c, ex, ey, w, h, a) {
+  const hh = Math.max(h * 0.08, h * (1 - a.blink));
+  c.fillStyle = F; rrect(c, ex - w / 2, ey - hh / 2, w, hh, Math.min(w, hh) / 2); c.fill();
+  if (a.blink < 0.5) {
+    const px = a.look * w * 0.08;
+    c.fillStyle = W;
+    circ(c, ex - w * 0.16 + px, ey - hh * 0.2, w * 0.24);
+    circ(c, ex + w * 0.18 + px, ey + hh * 0.2, w * 0.1);
+    if (a.mood === 'wide') circ(c, ex + w * 0.14 + px, ey - hh * 0.32, w * 0.07);
+  }
+  return hh;
+}
+function sleepEye(c, ex, ey, ew, side) {
+  const cy = ey - ew * 0.25, r = ew * 0.55;
+  c.strokeStyle = F; c.lineWidth = ew * 0.26;
+  c.beginPath(); c.arc(ex, cy, r, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+  c.lineWidth = ew * 0.13;
+  for (const th of side > 0 ? [0.2 * Math.PI, 0.36 * Math.PI] : [0.8 * Math.PI, 0.64 * Math.PI]) {
+    const x1 = ex + Math.cos(th) * r, y1 = cy + Math.sin(th) * r;
+    c.beginPath(); c.moveTo(x1, y1); c.lineTo(x1 + Math.cos(th) * ew * 0.3, y1 + Math.sin(th) * ew * 0.3); c.stroke();
+  }
+}
+function happyEye(c, ex, ey, ew) {
+  c.strokeStyle = F; c.lineWidth = ew * 0.32;
+  c.beginPath(); c.arc(ex, ey + ew * 0.28, ew * 0.55, 1.12 * Math.PI, 1.88 * Math.PI); c.stroke();
+}
+function starEye(c, ex, ey, r, t) {
+  c.save(); c.translate(ex, ey); c.rotate(Math.sin(t * 6) * 0.15);
+  const k = 1 + 0.12 * Math.sin(t * 12); c.scale(k, k);
+  c.fillStyle = F; c.strokeStyle = F; c.lineWidth = r * 0.3; c.lineJoin = 'round';
+  c.beginPath();
+  for (let i = 0; i < 10; i++) { const an = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.48 : r; c.lineTo(Math.cos(an) * rr, Math.sin(an) * rr); }
+  c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = W; circ(c, -r * 0.2, -r * 0.2, r * 0.17);
+  c.restore();
+}
+function squeezeEye(c, ex, ey, ew, side) {
+  c.strokeStyle = F; c.lineWidth = ew * 0.28;
+  const d = -side; // left eye points right (>), right eye points left (<)
+  c.beginPath(); c.moveTo(ex - d * ew * 0.38, ey - ew * 0.42); c.lineTo(ex + d * ew * 0.34, ey); c.lineTo(ex - d * ew * 0.38, ey + ew * 0.42); c.stroke();
+}
+
+function face(c, x, y, s, a, o) {
+  const T = o.T, light = mix(T, W, 0.5);
+  const ew = (o.ew || 24) * s, eh = (o.eh || 32) * s, gap = (o.gap || 52) * s;
+  const lx = a.look * ew * 0.32, ly = a.lookY * eh * 0.22, m = a.mood, t = a.t;
+  const jit = m === 'wide' ? Math.sin(t * 43) * 0.8 : 0;
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  // cheeks
+  if (m === 'happy' || m === 'sleep' || o.cheeks) {
+    c.fillStyle = light; c.globalAlpha = m === 'happy' ? 0.9 : 0.6;
+    ell(c, x - gap * 0.78, y + eh * 0.42, 9 * s, 5.5 * s); ell(c, x + gap * 0.78, y + eh * 0.42, 9 * s, 5.5 * s);
+    c.globalAlpha = 1;
+  }
+  const wk = m === 'wide' ? 1.18 : 1;
+  let topY = y - eh / 2;
+  for (const side of [-1, 1]) {
+    const ex = x + side * gap / 2 + lx + jit, ey = y + ly;
+    if (m === 'sleep') sleepEye(c, ex, ey, ew, side);
+    else if (m === 'happy') { if (a.st % 2.6 < 1.1) starEye(c, ex, ey, ew * 0.72, t); else happyEye(c, ex, ey, ew); }
+    else if (m === 'wide' && a.land) squeezeEye(c, ex, ey, ew, side);
+    else {
+      const hh = openEye(c, ex, ey, ew * wk, eh * wk, a);
+      topY = ey - hh / 2;
+      if (m === 'focus' && a.blink < 0.5) { c.fillStyle = T; c.fillRect(ex - ew / 2 - 2, ey - hh / 2 - 3, ew + 4, hh * 0.32 + 3); }
+    }
+  }
+  // brows
+  c.strokeStyle = F; c.lineWidth = 4.5 * s;
+  const by = y - eh * 0.5 * wk - 9 * s - (m === 'wide' ? 5 * s : 0);
+  for (const side of [-1, 1]) {
+    const ex = x + side * gap / 2 + lx * 0.5 + jit, inner = ex - side * ew * 0.5, outer = ex + side * ew * 0.55;
+    c.beginPath();
+    if (m === 'focus') {
+      if (side < 0) { c.moveTo(outer, by + 2 * s); c.quadraticCurveTo(ex, by - 9 * s, inner, by + 1 * s); }
+      else { c.moveTo(inner, by + 6 * s); c.lineTo(outer, by + 1 * s); }
+    } else if (m === 'wide') { c.moveTo(inner, by - 6 * s); c.quadraticCurveTo(ex, by - 7 * s, outer, by + 3 * s); }
+    else if (m === 'happy') { c.moveTo(inner, by - 1 * s); c.quadraticCurveTo(ex, by - 10 * s, outer, by - 1 * s); }
+    else { c.moveTo(inner, by + 8 * s); c.lineTo(outer, by + 10 * s); }
+    c.stroke();
+  }
+  // mouth
+  const my = y + (o.mouthDY || 30) * s, tongue = mix(T, W, 0.45);
+  if (m === 'sleep') {
+    c.fillStyle = F; ell(c, x, my, 4.5 * s, (3.5 + 1.5 * a.breath) * s);
+    // snot bubble
+    const g = (t * 0.32) % 1, bx = x + gap * 0.24, byy = y + eh * 0.5;
+    if (g < 0.94) {
+      const r = (3 + 13 * ease(g / 0.94)) * s;
+      c.fillStyle = rgba(light, 0.35); c.strokeStyle = rgba(W, 0.85); c.lineWidth = 1.6;
+      c.beginPath(); c.arc(bx + r * 0.6, byy + r * 0.3, r, 0, TAU); c.fill(); c.stroke();
+      c.fillStyle = W; circ(c, bx + r * 0.25, byy - r * 0.15, Math.max(1, r * 0.18));
+    } else {
+      c.strokeStyle = W; c.lineWidth = 2;
+      for (let i = 0; i < 6; i++) { const an = i * TAU / 6, r0 = 10 * s, r1 = 16 * s; c.beginPath(); c.moveTo(bx + 10 * s + Math.cos(an) * r0, byy + 5 * s + Math.sin(an) * r0); c.lineTo(bx + 10 * s + Math.cos(an) * r1, byy + 5 * s + Math.sin(an) * r1); c.stroke(); }
+    }
+  } else if (m === 'focus') {
+    c.save(); c.translate(x + 9 * s, my + 2 * s); c.rotate(0.35 + 0.18 * Math.sin(t * 5));
+    c.fillStyle = tongue; ell(c, 0, 4 * s, 5.5 * s, 7 * s);
+    c.strokeStyle = F; c.lineWidth = 2.2 * s; c.beginPath(); c.ellipse(0, 4 * s, 5.5 * s, 7 * s, 0, 0, TAU); c.stroke();
+    c.beginPath(); c.moveTo(0, 1 * s); c.lineTo(0, 6 * s); c.stroke();
+    c.restore();
+    c.strokeStyle = F; c.lineWidth = 4 * s;
+    c.beginPath(); c.moveTo(x - 12 * s, my - 1 * s); c.quadraticCurveTo(x, my + 5 * s, x + 12 * s, my - 1 * s); c.stroke();
+  } else if (m === 'wide') {
+    const ry = (11 + 4 * Math.abs(Math.sin(t * 10))) * s, mx = x + jit, mcy = my + 4 * s;
+    c.save(); c.fillStyle = F; c.beginPath(); c.ellipse(mx, mcy, 10 * s, ry, 0, 0, TAU); c.fill(); c.clip();
+    c.fillStyle = tongue; ell(c, mx, mcy + ry * 0.75, 8 * s, 6 * s); c.restore();
+    // sweat drop
+    const sx = x + gap * 0.95, sy = topY - 4 * s + Math.sin(t * 6) * 2;
+    c.fillStyle = rgba(W, 0.92); c.beginPath(); c.moveTo(sx, sy - 9 * s); c.quadraticCurveTo(sx + 7 * s, sy + 2 * s, sx, sy + 5 * s); c.quadraticCurveTo(sx - 7 * s, sy + 2 * s, sx, sy - 9 * s); c.fill();
+  } else {
+    const r = 17 * s;
+    c.save(); c.fillStyle = F; c.beginPath(); c.moveTo(x - r, my - 2 * s); c.lineTo(x + r, my - 2 * s); c.arc(x, my - 2 * s, r, 0, Math.PI); c.closePath(); c.fill(); c.clip();
+    c.fillStyle = tongue; circ(c, x, my + 15 * s, 10 * s); c.restore();
+  }
+  c.restore();
+}
+
+/* ---------- floating effects (screen space) ---------- */
+function fx(c, a, T, ax, ay) {
+  ax = Math.min(ax, 184);
+  const light = mix(T, W, 0.3);
+  c.save();
+  if (a.state === 'idle') {
+    c.fillStyle = light; c.textAlign = 'center'; c.textBaseline = 'middle';
+    for (let i = 0; i < 3; i++) { const p = (a.t * 0.45 + i / 3) % 1; c.globalAlpha = Math.sin(p * Math.PI); c.font = `700 ${Math.round(12 + p * 14)}px Fredoka, sans-serif`; c.fillText('z', ax + p * 22 + Math.sin(p * 6) * 4, ay - p * 40); }
+  }
+  if (a.state === 'working') {
+    c.fillStyle = rgba(T, 0.18); c.strokeStyle = T; c.lineWidth = 2;
+    c.beginPath(); c.arc(ax - 6, ay + 10, 3, 0, TAU); c.fill(); c.stroke();
+    c.beginPath(); c.arc(ax + 2, ay - 2, 5, 0, TAU); c.fill(); c.stroke();
+    rrect(c, ax - 2, ay - 36, 48, 26, 13); c.fill(); c.stroke();
+    c.fillStyle = T;
+    for (let i = 0; i < 3; i++) { const b = Math.max(0, Math.sin(a.t * 6 - i * 0.9)); c.globalAlpha = 0.35 + 0.65 * b; circ(c, ax + 10 + i * 12, ay - 23 - b * 3, 3.5); }
+  }
+  if (a.state === 'alert') {
+    const s = 1 + 0.12 * Math.sin(a.t * 10);
+    c.translate(ax + 14, ay - 14); c.scale(s, s);
+    c.fillStyle = AMB; rrect(c, -15, -17, 30, 30, 10); c.fill();
+    c.beginPath(); c.moveTo(-6, 11); c.lineTo(-11, 21); c.lineTo(4, 11); c.closePath(); c.fill();
+    c.fillStyle = '#1A1206'; c.font = '700 24px Fredoka, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('!', 0, -1);
+  }
+  if (a.state === 'done') {
+    for (let i = 0; i < 6; i++) {
+      const p = (a.t * 0.9 + i / 6) % 1, an = i / 6 * TAU + 0.4, r = 92 * (0.75 + p * 0.35), sz = 8 * Math.sin(p * Math.PI);
+      const x = 120 + Math.cos(an) * r, y = 125 + Math.sin(an) * r * 0.75;
+      c.fillStyle = i % 2 ? W : light;
+      c.beginPath(); c.moveTo(x, y - sz); c.quadraticCurveTo(x, y, x + sz, y); c.quadraticCurveTo(x, y, x, y + sz); c.quadraticCurveTo(x, y, x - sz, y); c.quadraticCurveTo(x, y, x, y - sz); c.fill();
+    }
+  }
+  c.restore();
+}
+function shadow(c, a, w, T) { c.fillStyle = rgba(T, 0.16); ell(c, 120, 202, w * (1 - a.air * 0.35), 6 * (1 - a.air * 0.3)); }
+function limb(c, x0, y0, x1, y1, w, T, cx, cy) { c.strokeStyle = T; c.lineWidth = w; c.lineCap = 'round'; c.beginPath(); c.moveTo(x0, y0); if (cx !== undefined) c.quadraticCurveTo(cx, cy, x1, y1); else c.lineTo(x1, y1); c.stroke(); }
+
+/* ---------- the crew ---------- */
+const CREW = [
+  {
+    id: 'boxo', name: 'Boxo', kind: 'the cube', tint: '#7FD4FF',
+    blurb: 'A chunky rounded cube with stubby arms. Stiff and earnest, squashes flat when he lands and does a full somersault when a task finishes.',
+    draw(c, a, T) {
+      shadow(c, a, 60, T);
+      const gy = 198 + a.bob, half = 54;
+      let rot = a.lean;
+      if (a.state === 'done' && a.st < 0.9) rot += ease(a.st / 0.9) * TAU;
+      c.save(); c.translate(120, gy - half * a.sy); c.rotate(rot); c.scale(a.sx, a.sy);
+      c.fillStyle = T;
+      rrect(c, -36, half - 8, 26, 16, 8); c.fill(); rrect(c, 10, half - 8, 26, 16, 8); c.fill();
+      if (a.state === 'alert') { limb(c, -56, 10, -66, 32, 16, T); limb(c, 56, -6, 74 + a.wave * 6, -46, 16, T); }
+      else if (a.state === 'done') { limb(c, -56, -6, -76, -44 + a.wave * 4, 16, T); limb(c, 56, -6, 76, -44 - a.wave * 4, 16, T); }
+      else if (a.state === 'working') { limb(c, -56, 12, -44, 34 + a.wave * 3, 16, T); limb(c, 56, 12, 44, 34 - a.wave * 3, 16, T); }
+      else { limb(c, -56, 8, -64, 30, 16, T); limb(c, 56, 8, 64, 30, 16, T); }
+      rrect(c, -half, -half, half * 2, half * 2, 24); c.fill();
+      face(c, 0, -8, 1, a, { T });
+      c.restore();
+      fx(c, a, T, 120 + 62, gy - 120);
+    },
+  },
+  {
+    id: 'glob', name: 'Glob', kind: 'the blob', tint: '#8CF5C2',
+    blurb: 'A soft, jiggly dollop. Constantly wobbling at the edges, melts into a puddle when he dozes off, and flaps little nubs when he wants you.',
+    draw(c, a, T) {
+      shadow(c, a, 72, T);
+      const gy = 198 + a.bob;
+      let sx = a.sx, sy = a.sy;
+      if (a.state === 'idle') { sy *= 0.86; sx *= 1.1; }
+      c.save(); c.translate(120, gy); c.rotate(a.lean); c.scale(sx, sy);
+      c.fillStyle = T;
+      const w = 72, h = 64, cy = -h;
+      if (a.state === 'alert') { ell(c, -w - 4, cy + 18, 10, 14, 0.4 + a.wave * 0.3); ell(c, w + 6, cy - 26 + a.wave * 5, 10, 15, 0.7 + a.wave * 0.3); }
+      else if (a.state === 'done') { ell(c, -w * 0.9, cy - 30, 10, 15, -0.6 + a.wave * 0.2); ell(c, w * 0.9, cy - 30, 10, 15, 0.6 - a.wave * 0.2); }
+      else { ell(c, -w - 2, cy + 26, 10, 13, 0.3); ell(c, w + 2, cy + 26, 10, 13, -0.3); }
+      c.beginPath();
+      for (let i = 0; i <= 60; i++) {
+        const th = i / 60 * TAU, r = 1 + 0.04 * Math.sin(3 * th + a.t * 2.4) + 0.02 * Math.sin(5 * th - a.t * 3.1);
+        const x = Math.cos(th) * w * r; let y = cy + Math.sin(th) * h * r; if (y > 0) y = 0;
+        i ? c.lineTo(x, y) : c.moveTo(x, y);
+      }
+      c.fill();
+      face(c, 0, cy - 6, 0.95, a, { T });
+      c.restore();
+      fx(c, a, T, 120 + 64, gy - 128 * sy);
+    },
+  },
+  {
+    id: 'chonk', name: 'Chonk', kind: 'the round boy', tint: '#FFB38A',
+    blurb: 'A big, wide, heavy little guy with tiny arms that can\'t reach above his head. His belly keeps jiggling after every landing.',
+    draw(c, a, T) {
+      shadow(c, a, 82, T);
+      const gy = 198 + a.bob;
+      const jig = (a.state === 'alert' || a.state === 'done') ? 0.035 * Math.sin(a.t * 22) * (1 - a.air) : 0.01 * Math.sin(a.t * 3);
+      c.save(); c.translate(120, gy); c.rotate(a.lean * 0.6); c.scale(a.sx + jig, a.sy - jig);
+      c.fillStyle = T;
+      ell(c, -38, -4, 20, 10); ell(c, 38, -4, 20, 10);
+      const flap = a.state === 'alert' ? Math.sin(a.t * 32) * 0.6 : a.state === 'done' ? -0.9 + a.wave * 0.2 : a.state === 'working' ? 0.2 + a.wave * 0.15 : 0.4;
+      for (const s of [-1, 1]) { c.save(); c.translate(s * 84, -66); c.rotate(s * (0.6 - flap)); ell(c, s * 8, 0, 14, 9); c.restore(); }
+      ell(c, 0, -68, 88, 68);
+      face(c, 0, -84, 0.9, a, { T, gap: 60, cheeks: true });
+      c.restore();
+      fx(c, a, T, 120 + 66, gy - 132);
+    },
+  },
+  {
+    id: 'noodle', name: 'Noodle', kind: 'the skinny one', tint: '#FFE27A',
+    blurb: 'Tall, thin and bendy, with long floppy arms. Droops right over when he falls asleep and flails both arms when he needs you.',
+    draw(c, a, T) {
+      shadow(c, a, 34, T);
+      const gy = 198 + a.bob;
+      const bend = a.state === 'idle' ? 30 + 3 * Math.sin(a.t * 1.4) : a.state === 'working' ? 6 * Math.sin(a.t * 1.6) : a.state === 'alert' ? 14 * Math.sin(a.t * 9) : 10 * Math.sin(a.t * 5);
+      const H = 150 * a.sy, tx = bend, ty = -H, cxp = bend * 0.1, cyp = -H * 0.55;
+      const at = u => [2 * (1 - u) * u * cxp + u * u * tx, 2 * (1 - u) * u * cyp + u * u * ty];
+      const tan = u => Math.atan2(2 * (1 - u) * (cyp) + 2 * u * (ty - cyp), 2 * (1 - u) * cxp + 2 * u * (tx - cxp));
+      c.save(); c.translate(120, gy);
+      c.fillStyle = T; ell(c, -12, -2, 12, 7); ell(c, 12, -2, 12, 7);
+      const [shx, shy] = at(0.55);
+      const arms = {
+        idle: [[-26, -36], [34, -30]], working: [[-14, shy + 26 + a.wave * 3], [16, shy + 26 - a.wave * 3]],
+        alert: [[-46, shy - 64 + a.wave * 8], [46, shy - 64 - a.wave * 8]], done: [[-44, shy - 56 + a.wave * 5], [44, shy - 56 - a.wave * 5]],
+      }[a.state];
+      for (let i = 0; i < 2; i++) { const s = i ? 1 : -1, [hx, hy] = arms[i]; limb(c, shx + s * 24, shy, shx + hx, hy, 8, T, shx + s * 34, shy + (a.state === 'alert' || a.state === 'done' ? -10 : 20)); c.fillStyle = T; circ(c, shx + hx, hy, 6); }
+      c.strokeStyle = T; c.lineWidth = 58; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(0, -29); c.quadraticCurveTo(cxp, cyp, tx, ty + 29); c.stroke();
+      const [fx0, fy0] = at(0.78), ang = tan(0.78) + Math.PI / 2;
+      c.save(); c.translate(fx0, fy0); c.rotate(ang);
+      face(c, 0, 0, 0.74, a, { T, gap: 46, eh: 30, mouthDY: 30 });
+      c.restore();
+      c.restore();
+      fx(c, a, T, 120 + tx + 30, gy - H - 4);
+    },
+  },
+  {
+    id: 'tri', name: 'Tri', kind: 'the triangle', tint: '#C9A8FF',
+    blurb: 'A soft rounded triangle, like a rice ball with feet. Rocks side to side on his wide base and tips over to doze.',
+    draw(c, a, T) {
+      shadow(c, a, 70, T);
+      const gy = 198 + a.bob;
+      const tilt = a.state === 'idle' ? 0.12 + 0.03 * Math.sin(a.t * 1.4) : a.lean * 2 + (a.state === 'working' ? 0.05 * Math.sin(a.t * 2) : 0);
+      c.save(); c.translate(120, gy); c.rotate(tilt); c.scale(a.sx, a.sy);
+      c.fillStyle = T; c.strokeStyle = T;
+      ell(c, -30, -3, 15, 8); ell(c, 30, -3, 15, 8);
+      if (a.state === 'alert') { limb(c, -48, -52, -64, -34, 14, T); limb(c, 48, -60, 70 + a.wave * 6, -100, 14, T); }
+      else if (a.state === 'done') { limb(c, -44, -64, -66, -102 + a.wave * 4, 14, T); limb(c, 44, -64, 66, -102 - a.wave * 4, 14, T); }
+      else { limb(c, -50, -50, -60, -30, 14, T); limb(c, 50, -50, 60, -30, 14, T); }
+      c.lineWidth = 28; c.lineJoin = 'round';
+      c.beginPath(); c.moveTo(0, -134); c.lineTo(-70, -16); c.lineTo(70, -16); c.closePath(); c.fill(); c.stroke();
+      face(c, 0, -60, 0.88, a, { T, gap: 48, mouthDY: 28 });
+      c.restore();
+      fx(c, a, T, 120 + 50, gy - 132);
+    },
+  },
+  {
+    id: 'drip', name: 'Drip', kind: 'the slime drop', tint: '#FF8FB8',
+    blurb: 'A gooey droplet with a curly tip that flicks around with his mood. Slowly drips while he sleeps, and the tip whips about when he needs you.',
+    draw(c, a, T) {
+      shadow(c, a, 62, T);
+      const gy = 198 + a.bob;
+      const tipX = a.state === 'idle' ? 34 + 4 * Math.sin(a.t * 1.4) : a.state === 'alert' ? 22 * Math.sin(a.t * 12) : 10 * Math.sin(a.t * 2.2);
+      const tipY = a.state === 'idle' ? -128 : -164;
+      let sx = a.sx, sy = a.sy; if (a.state === 'idle') { sy *= 0.92; sx *= 1.05; }
+      c.save(); c.translate(120, gy); c.rotate(a.lean); c.scale(sx, sy);
+      c.fillStyle = T;
+      if (a.state === 'alert') { ell(c, -60, -64, 9, 14, 0.4); ell(c, 64, -96 + a.wave * 6, 9, 14, 0.8 + a.wave * 0.3); }
+      else if (a.state === 'done') { ell(c, -58, -96, 9, 14, -0.6 + a.wave * 0.2); ell(c, 58, -96, 9, 14, 0.6 - a.wave * 0.2); }
+      const R = 60, cy = -R;
+      c.beginPath(); c.moveTo(tipX, tipY);
+      c.bezierCurveTo(tipX + 14, tipY + 44, R, cy - 46, R, cy);
+      c.arc(0, cy, R, 0, Math.PI);
+      c.bezierCurveTo(-R, cy - 46, tipX - 14, tipY + 44, tipX, tipY);
+      c.fill();
+      circ(c, tipX, tipY, 4);
+      if (a.state === 'idle') { const p = (a.t * 0.5) % 1; ell(c, 44, -10 + p * 40, 5 - p * 2, 6 + p * 3); }
+      face(c, 0, cy - 2, 0.9, a, { T, gap: 50 });
+      c.restore();
+      fx(c, a, T, 120 + 60, gy - 138);
+    },
+  },
+];
+
+/* ---------- page wiring ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('blobcrew:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('blobcrew:' + k, JSON.stringify(v)); } catch {} },
+};
+let mode = 'cycle', tintMode = 'own';
+const picks = new Set(store.get('picks', []));
+const grid = document.getElementById('grid');
+const cards = CREW.map(ch => {
+  const el = document.createElement('article');
+  el.className = 'card';
+  el.style.setProperty('--glow', rgba(ch.tint, 0.35));
+  el.innerHTML = `
+    <div class="stage"><canvas width="240" height="240" role="img" aria-label="${ch.name}, ${ch.kind}"></canvas><span class="chip"></span></div>
+    <div class="meta"><h2>${ch.name}<small>${ch.kind}</small></h2>
+      <button type="button" class="pick" id="pick-${ch.id}" aria-pressed="false">Shortlist</button></div>
+    <p class="blurb">${ch.blurb}</p>`;
+  grid.appendChild(el);
+  const btn = el.querySelector('.pick');
+  btn.addEventListener('click', () => { picks.has(ch.id) ? picks.delete(ch.id) : picks.add(ch.id); store.set('picks', [...picks]); syncPicks(); });
+  return { ch, el, btn, ctx: el.querySelector('canvas').getContext('2d'), chip: el.querySelector('.chip') };
+});
+function syncPicks() {
+  cards.forEach(({ ch, el, btn }) => { const on = picks.has(ch.id); el.classList.toggle('picked', on); btn.setAttribute('aria-pressed', String(on)); btn.textContent = on ? 'Shortlisted' : 'Shortlist'; });
+  const list = CREW.filter(c => picks.has(c.id));
+  document.getElementById('pickList').innerHTML = list.length ? 'Shortlisted: ' + list.map(c => `<b>${c.name}</b> (${c.kind})`).join(', ') : 'Nothing shortlisted yet. Use <b>Shortlist</b> on any card.';
+}
+syncPicks();
+function bindSeg(id, attr, apply) {
+  const seg = document.getElementById(id);
+  seg.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); apply(b.dataset[attr]); });
+}
+bindSeg('stateSeg', 'state', v => { mode = v; });
+bindSeg('tintSeg', 'tint', v => { tintMode = v; cards.forEach(k => k.el.style.setProperty('--glow', rgba(v === 'own' ? k.ch.tint : v, 0.35))); });
+bindSeg('viewSeg', 'view', v => document.body.classList.toggle('prism', v === 'prism'));
+bindSeg('sizeSeg', 'size', v => document.body.classList.toggle('actual', v === 'actual'));
+document.body.classList.add('prism');
+const notes = document.getElementById('notes');
+notes.value = store.get('notes', '');
+notes.addEventListener('input', () => store.set('notes', notes.value));
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const list = CREW.filter(c => picks.has(c.id));
+  const text = ['Blob crew shortlist: ' + (list.length ? list.map(c => `${c.name} (${c.kind})`).join(', ') : 'none yet'), notes.value.trim() ? 'Notes: ' + notes.value.trim() : ''].filter(Boolean).join('\n');
+  const status = document.getElementById('copyStatus'), fb = document.getElementById('copyFallback');
+  const fallback = () => { fb.hidden = false; fb.value = text; fb.focus(); fb.select(); status.textContent = 'Select-all and copy the text below.'; };
+  try { navigator.clipboard.writeText(text).then(() => { status.textContent = 'Copied. Paste it into your chat with Claude.'; fb.hidden = true; }, fallback); } catch { fallback(); }
+});
+
+/* ---------- animation ---------- */
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const CYCLE = 4.2;
+let lastDraw = 0, prevState = null, stateSince = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (reduced && now - lastDraw < 400) return;
+  lastDraw = now;
+  const t = now / 1000;
+  const state = mode === 'cycle' ? STATES[Math.floor(t / CYCLE) % 4] : mode;
+  if (state !== prevState) { prevState = state; stateSince = t; }
+  const a = anim(state, t, t - stateSince);
+  for (const k of cards) {
+    const c = k.ctx, T = tintMode === 'own' ? k.ch.tint : tintMode;
+    c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+    c.fillStyle = '#000'; c.fillRect(0, 0, 240, 240);
+    k.ch.draw(c, a, T);
+    if (k.chip.dataset.s !== state) { k.chip.dataset.s = state; k.chip.textContent = STATE_LABEL[state]; k.chip.classList.toggle('alert', state === 'alert'); }
+  }
+}
+requestAnimationFrame(frame);
+})();
+</script>

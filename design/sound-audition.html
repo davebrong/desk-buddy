@@ -1,0 +1,753 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lump's Voice Audition</title>
+<!-- Round 3 (Jelly family) is the current one; rounds 1–2 are kept below for comparison. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #090C12; --surface: #11161F; --surface-2: #171E2B; --line: #222B3B;
+  --fg: #E7ECF4; --muted: #8C97AB; --accent: #FFB547; --accent-ink: #1A1206; --peri: #9AA8FF;
+  --font-display: "Fredoka", "Avenir Next Rounded", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 40px 16px 64px; display: flex; flex-direction: column; gap: 30px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(32px, 6vw, 48px); line-height: 1.05; margin: 6px 0 10px; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 22px; margin: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.lede { margin: 0; color: var(--muted); max-width: 68ch; font-size: 16px; }
+.lede strong { color: var(--fg); font-weight: 500; }
+section { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.letter { font-family: var(--font-mono); font-size: 13px; background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 1px 8px; font-weight: 500; }
+.lic { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 9px; }
+.lic.good { color: #8FE3B0; border-color: #2B5A41; }
+.lic.warn { color: var(--accent); border-color: #5A4522; }
+.note { margin: 0; color: var(--muted); max-width: 75ch; }
+.note a { color: var(--peri); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+button.snd { all: unset; cursor: pointer; display: flex; gap: 12px; align-items: center; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; transition: border-color .15s, transform .1s; }
+button.snd:hover { border-color: var(--peri); }
+button.snd:active { transform: scale(.98); }
+button.snd:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.play { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--peri); display: grid; place-items: center; }
+.play svg { width: 14px; height: 14px; fill: #0B1020; margin-left: 2px; }
+button.snd.playing .play { background: var(--accent); }
+.meta { display: flex; flex-direction: column; min-width: 0; }
+.id { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.err { color: #FF8A8A; }
+.vibe { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.vibe:first-child { border-top: 0; }
+.vibe h3 { font-family: var(--font-display); font-weight: 600; font-size: 19px; margin: 0; }
+.vibe p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.4; }
+.vibe .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+#moments .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+@media (max-width: 640px) { .vibe { grid-template-columns: 1fr; } }
+.zips { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.zip { background: var(--surface-2); border: 1px dashed var(--line); border-radius: 12px; padding: 12px 14px; }
+.zip b { font-weight: 500; }
+.zip p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.zip a { color: var(--peri); }
+footer { color: var(--muted); font-size: 13.5px; }
+.tune { display: flex; flex-wrap: wrap; gap: 10px 28px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.tune label { display: flex; gap: 10px; align-items: center; }
+.tune input { accent-color: var(--peri); width: 150px; }
+.tune span { color: var(--fg); min-width: 9ch; }
+.when { font-size: 13px; color: var(--muted); }
+.chip { display: inline-block; font-family: var(--font-mono); font-size: 11px; border-radius: 99px; padding: 0 8px; margin-top: 4px; border: 1px solid var(--line); color: var(--muted); }
+.chip.on { color: #8FE3B0; border-color: #2B5A41; }
+.mhead { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.mhead .ctl { display: flex; gap: 8px; align-items: center; }
+.switch { all: unset; cursor: pointer; width: 38px; height: 22px; border-radius: 99px; background: var(--line); position: relative; transition: background .15s; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+.switch[aria-checked="true"] { background: #2E7D55; }
+.switch[aria-checked="true"]::after { transform: translateX(16px); background: #E7FFF1; }
+.switch:focus-visible, .mini:focus-visible, .tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.swlabel { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.mini { all: unset; cursor: pointer; font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 2px 9px; color: var(--fg); }
+.mini:hover { border-color: var(--peri); }
+.vibe.off .grid, .vibe.off h3, .vibe.off .when { opacity: .38; }
+.opt { display: flex; align-items: stretch; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; transition: border-color .15s, background .15s; }
+.opt.picked { border-color: var(--peri); background: #1B2238; }
+.opt button.snd { flex: 1; border: 0; background: none; min-width: 0; }
+.tick { all: unset; cursor: pointer; width: 40px; display: grid; place-items: center; border-left: 1px solid var(--line); flex: none; }
+.tick span { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--muted); display: grid; place-items: center; font-size: 13px; color: transparent; }
+.opt.picked .tick span { background: var(--peri); border-color: var(--peri); color: #0B1020; }
+.summary { border-top: 1px solid var(--line); padding-top: 14px; }
+.sumhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.summary h3 { font-family: var(--font-display); font-weight: 600; font-size: 19px; margin: 0; }
+.summary ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); columns: 2 260px; font-size: 14px; }
+.summary li b { color: var(--fg); font-weight: 500; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Desk Buddy · sound audition</div>
+    <h1>Lump's voice</h1>
+    <p class="lede">Lump's voice is the <strong>ocarina</strong>. The section at the top is the current job: choosing the sound for each moment. The earlier rounds and the free online packs are kept further down for reference.</p>
+  </header>
+
+  <section id="moments-section">
+    <h2><span class="letter" style="background:var(--peri)">★</span> Lump's moments, on ocarina</h2>
+    <p class="note">Each row is a moment. Use the <strong>switch</strong> to turn the moment on or off. Click a sound to hear it, and <strong>tick</strong> every version you want him to use. If you tick more than one, he picks at random each time but never repeats the same one twice in a row. <strong>Try</strong> plays a random pick from your ticks. Everything you change is saved on this page, and I'll read it straight from here when you tell me you're ready.</p>
+    <div class="tune">
+      <label>Pitch <input type="range" id="tPitch" min="380" max="900" step="10" value="600"> <span id="vPitch">600 Hz</span></label>
+      <label>Speed <input type="range" id="tSpeed" min="0.8" max="2.2" step="0.05" value="1.4"> <span id="vSpeed">1.40× slower</span></label>
+      <label>Breathiness <input type="range" id="tBreath" min="0" max="0.25" step="0.01" value="0.06"> <span id="vBreath">0.06</span></label>
+    </div>
+    <div id="moments"></div>
+    <div class="summary">
+      <div class="sumhead"><h3>Your setup</h3><span><button class="mini" id="copyBtn">Copy settings</button> <button class="mini" id="resetBtn">Reset</button></span></div>
+      <ul id="summary"></ul>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="letter">A</span> Made from scratch, just for Lump <span class="lic good">original · ours</span></h2>
+    <p class="note">Round 4: different instruments. Each row is a completely different sound source (plucked, blown, struck, buzzed, squeezed, chip), still talking in Lump's little phrases. Jelly is first for reference. Mixing is fine, like "Kalimba for happy, Ocarina for hello".</p>
+    <div id="instruments"></div>
+    <details><summary class="note" style="cursor:pointer">Round 3 (the Jelly family)</summary><div id="family"></div></details>
+    <details><summary class="note" style="cursor:pointer">Round 2 (six vibes, same "bwow" at different pitches)</summary><div id="vibes"></div></details>
+    <details><summary class="note" style="cursor:pointer">Round 1 (first try, all 9 moments)</summary><div class="grid" id="synth" style="margin-top:10px"></div></details>
+  </section>
+
+  <section>
+    <h2><span class="letter">B</span> LilMati: cute creature <span class="lic good">CC0 · Freesound</span></h2>
+    <p class="note">Bright, cartoony and expressive. The same performer made a lot of these, so there's more to pick from if you like the voice.</p>
+    <div class="grid" data-set="B"></div>
+  </section>
+
+  <section>
+    <h2><span class="letter">C</span> riippumattog: cute alien who speaks English <span class="lic good">CC0 · Freesound</span></h2>
+    <p class="note">Real words in a squeaky alien voice. Charming, but it says actual words, which might get old.</p>
+    <div class="grid" data-set="C"></div>
+  </section>
+
+  <section>
+    <h2><span class="letter">D</span> fvcalderan: tiny creatures <span class="lic good">CC0 · OpenGameArt</span></h2>
+    <p class="note">A sped-up human voice. Only 4 sounds, so it'd need topping up.</p>
+    <div class="grid" data-set="D"></div>
+  </section>
+
+  <section>
+    <h2><span class="letter">E</span> Loose single sounds <span class="lic good">CC0 · Freesound</span></h2>
+    <p class="note">Each one is from a different creator. Good for one particular moment, but mixing several would make Lump sound like different creatures.</p>
+    <div class="grid" data-set="E"></div>
+  </section>
+
+  <section>
+    <h2><span class="letter">F</span> Full packs that need downloading to hear</h2>
+    <p class="note">These come as zip files with no online preview. Say the word and I'll fetch them so you can listen.</p>
+    <div class="zips">
+      <div class="zip"><b>F1 · 80 CC0 creature SFX</b> <span class="lic good">CC0</span>
+        <p>By rubberduck, mostly mouth-made. Includes 10 "cute", 6 "alien", 5 "weird" and 9 "misc" sounds, all in one voice. <strong>The most promising full set.</strong> 1.9 MB · <a href="https://opengameart.org/content/80-cc0-creature-sfx" target="_blank">page</a></p></div>
+      <div class="zip"><b>F2 · Alien Sounds Pack 0</b> <span class="lic good">free · no credit</span>
+        <p>By Aloyminimum on itch.io. Free, royalty-free, unprocessed alien noises (pack 0 is free, the others are $3–5). 595 kB · <a href="https://aloyminimum.itch.io/alien-sounds-pack" target="_blank">page</a></p></div>
+      <div class="zip"><b>F3 · Free Audio Creature Sample Pack</b> <span class="lic warn">free · credit required</span>
+        <p>By fairlight1337 on itch.io. Includes squeaky creatures and "dialogue elements". Fine for personal use but asks for credit. 1.8 MB · <a href="https://fairlight1337.itch.io/free-audio-creature-sample-pack" target="_blank">page</a></p></div>
+    </div>
+  </section>
+
+  <footer>Freesound and OpenGameArt sounds stream from their sites, so you need to be online. The previews are lower quality than the real files.</footer>
+</div>
+
+<script>
+const FS = id => `https://freesound.org/s/${id}/`;
+const SETS = {
+  B: [
+    ["Retro, spare or eat?", "https://cdn.freesound.org/previews/658/658270_6142149-lq.mp3", FS(658270)],
+    ["Warning you", "https://cdn.freesound.org/previews/657/657927_6142149-lq.mp3", FS(657927)],
+    ["Hint / clue / hello", "https://cdn.freesound.org/previews/494/494750_6142149-lq.mp3", FS(494750)],
+    ["Bunny abducted by UFO", "https://cdn.freesound.org/previews/523/523773_6142149-lq.mp3", FS(523773)],
+  ],
+  C: [
+    ['"hello"', "https://cdn.freesound.org/previews/823/823495_15115102-lq.mp3", FS(823495)],
+    ['"good bye"', "https://cdn.freesound.org/previews/870/870402_15115102-lq.mp3", FS(870402)],
+    ['"hello, can I help you"', "https://cdn.freesound.org/previews/866/866634_15115102-lq.mp3", FS(866634)],
+    ['"aloha is family"', "https://cdn.freesound.org/previews/828/828471_15115102-lq.mp3", FS(828471)],
+  ],
+  D: [
+    ["Laugh", "https://opengameart.org/sites/default/files/laugh.ogg", "https://opengameart.org/content/tiny-creatures-sounds"],
+    ["Battle cry 1", "https://opengameart.org/sites/default/files/battlecry0.ogg", "https://opengameart.org/content/tiny-creatures-sounds"],
+    ["Battle cry 2", "https://opengameart.org/sites/default/files/battlecry1.ogg", "https://opengameart.org/content/tiny-creatures-sounds"],
+    ["Battle cry 3", "https://opengameart.org/sites/default/files/battlecry2.ogg", "https://opengameart.org/content/tiny-creatures-sounds"],
+  ],
+  E: [
+    ["Alien word (qubodup)", "https://cdn.freesound.org/previews/872/872014_71257-lq.mp3", FS(872014)],
+    ["Tiny creatures babbling", "https://cdn.freesound.org/previews/540/540161_7898982-lq.mp3", FS(540161)],
+    ["Delicate droid babble", "https://cdn.freesound.org/previews/801/801918_2520418-lq.mp3", FS(801918)],
+    ["Cute creature sing", "https://cdn.freesound.org/previews/546/546761_2282212-lq.mp3", FS(546761)],
+    ["Cute creature: look out", "https://cdn.freesound.org/previews/179/179309_84709-lq.mp3", FS(179309)],
+    ["Tiny croc chirp", "https://cdn.freesound.org/previews/511/511430_7108319-lq.mp3", FS(511430)],
+    ["Space animal", "https://cdn.freesound.org/previews/221/221803_3992513-lq.mp3", FS(221803)],
+    ["Weird squeaky mouth", "https://cdn.freesound.org/previews/458/458111_3298379-lq.mp3", FS(458111)],
+  ],
+};
+
+const ICON = '<svg viewBox="0 0 10 10"><path d="M1 0.5 L9.5 5 L1 9.5Z"/></svg>';
+let current = null;
+function card(code, name, onPlay, href) {
+  const b = document.createElement("button");
+  b.className = "snd";
+  b.innerHTML = `<span class="play">${ICON}</span><span class="meta"><span class="id">${code}${href ? ` · <a href="${href}" target="_blank" style="color:inherit" onclick="event.stopPropagation()">source</a>` : ""}</span><span class="name">${name}</span></span>`;
+  b.addEventListener("click", () => onPlay(b));
+  return b;
+}
+function playUrl(url) {
+  return b => {
+    if (current) { current.pause(); }
+    document.querySelectorAll(".snd.playing").forEach(x => x.classList.remove("playing"));
+    const a = new Audio(url); current = a;
+    b.classList.add("playing");
+    a.onended = () => b.classList.remove("playing");
+    a.play().catch(() => { b.classList.remove("playing"); b.querySelector(".name").classList.add("err"); });
+  };
+}
+for (const [set, list] of Object.entries(SETS)) {
+  const g = document.querySelector(`[data-set="${set}"]`);
+  list.forEach(([name, url, href], i) => g.appendChild(card(set + (i + 1), name, playUrl(url), href)));
+}
+
+// ---- A: Lump's own voice, synthesised: a buzzy little source through two vowel formants ----
+let ctx;
+const V = { oo: [380, 900], oh: [520, 1000], ah: [800, 1300], eh: [600, 1900], ee: [340, 2500] };
+function syl(t, { p0, p1, d, v0 = "oo", v1 = v0, vib = 0.035, wob = 1, vol = 1 }) {
+  const out = ctx.createGain(); out.gain.setValueAtTime(0, t);
+  out.gain.linearRampToValueAtTime(0.5 * vol, t + 0.018);
+  out.gain.setValueAtTime(0.5 * vol, t + d * 0.6);
+  out.gain.exponentialRampToValueAtTime(0.0008, t + d);
+  const src = ctx.createOscillator(); src.type = "sawtooth";
+  const body = ctx.createOscillator(); body.type = "sine";
+  for (const o of [src, body]) {
+    o.frequency.setValueAtTime(p0 * (1 - 0.12 * wob), t);       // squidgy scoop up into the note
+    o.frequency.exponentialRampToValueAtTime(p0, t + 0.03);
+    o.frequency.exponentialRampToValueAtTime(p1, t + d);
+  }
+  const lfo = ctx.createOscillator(); lfo.frequency.value = 11;   // fast little wobble
+  const lfoG = ctx.createGain(); lfoG.gain.value = p0 * vib;
+  lfo.connect(lfoG); lfoG.connect(src.frequency); lfoG.connect(body.frequency);
+  const mix = ctx.createGain();
+  for (let k = 0; k < 2; k++) {
+    const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 7;
+    f.frequency.setValueAtTime(V[v0][k] * 1.7, t);                // small creature = high formants
+    f.frequency.linearRampToValueAtTime(V[v1][k] * 1.7, t + d);
+    const g = ctx.createGain(); g.gain.value = k ? 0.7 : 1.1;
+    src.connect(f); f.connect(g); g.connect(mix);
+  }
+  const bg = ctx.createGain(); bg.gain.value = 0.35; body.connect(bg); bg.connect(mix);
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 5000;
+  mix.connect(lp); lp.connect(out); out.connect(ctx.destination);
+  for (const o of [src, body, lfo]) { o.start(t); o.stop(t + d + 0.05); }
+  return t + d;
+}
+function say(parts) {
+  ctx = ctx || new AudioContext();
+  let t = ctx.currentTime + 0.03, end = t;
+  for (const p of parts) { end = syl(t + (p.gap || 0), p); t = end; }
+  return (end - ctx.currentTime) * 1000;
+}
+const LUMP = [
+  ["Hello! (back after a break)", [{ p0: 520, p1: 760, d: .13, v0: "oo", v1: "ee" }, { gap: .03, p0: 700, p1: 980, d: .2, v0: "ah", v1: "ee" }]],
+  ["Hey! (needs you)", [{ p0: 640, p1: 1000, d: .12, v0: "ah", v1: "ee" }, { gap: .1, p0: 700, p1: 1150, d: .17, v0: "ah", v1: "ee", vib: .05 }]],
+  ["Hey, please? (still waiting)", [{ p0: 760, p1: 620, d: .16, v0: "eh", v1: "oo" }, { gap: .06, p0: 680, p1: 820, d: .3, v0: "oo", v1: "ee", vib: .06 }]],
+  ["Yay! (finished)", [{ p0: 600, p1: 650, d: .07, v0: "ee" }, { p0: 720, p1: 760, d: .07, v0: "ee" }, { p0: 860, p1: 900, d: .07, v0: "ee" }, { gap: .02, p0: 900, p1: 1400, d: .26, v0: "ah", v1: "ee", vib: .06 }]],
+  ["Uh-oh (something failed)", [{ p0: 700, p1: 660, d: .12, v0: "ah" }, { gap: .05, p0: 540, p1: 360, d: .26, v0: "oh", v1: "oo" }]],
+  ["Mm-hm! (on it)", [{ p0: 480, p1: 520, d: .08, v0: "oo", wob: .5 }, { gap: .02, p0: 560, p1: 760, d: .11, v0: "oo", v1: "eh" }]],
+  ["Hm? (curious fidget)", [{ p0: 460, p1: 780, d: .26, v0: "oo", v1: "eh", vib: .02 }]],
+  ["Hnngh (long job)", [{ p0: 420, p1: 470, d: .35, v0: "eh", v1: "oo", vib: .08, wob: .3 }, { gap: .04, p0: 520, p1: 440, d: .14, v0: "ah", v1: "oo" }]],
+  ["Yaaawn (night)", [{ p0: 640, p1: 380, d: .7, v0: "ah", v1: "oo", vib: .02, wob: .2, vol: .7 }]],
+];
+// ---- Round 2: one engine, six "voices". Same four phrases in each, so only the vibe changes. ----
+// Pitches are multiples of the voice's base note; durations get stretched by the voice's tempo.
+let noiseBuf;
+function noise() {
+  if (!noiseBuf) {
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const n = ctx.createBufferSource(); n.buffer = noiseBuf; n.loop = true; return n;
+}
+function syl2(t, s, c) {
+  const d = s.d * c.tempo, p0 = s.p0 * c.base, p1 = s.p1 * c.base, vol = (s.vol || 1) * c.vol;
+  const out = ctx.createGain(); out.gain.setValueAtTime(0.0001, t);
+  out.gain.exponentialRampToValueAtTime(vol, t + c.attack);
+  out.gain.setValueAtTime(vol, t + d * c.hold);
+  out.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  const oscs = [];
+  const src = ctx.createOscillator(); src.type = c.wave; oscs.push(src);
+  const sub = ctx.createOscillator(); sub.type = "sine"; oscs.push(sub);
+  for (const o of [src, sub]) {
+    o.frequency.setValueAtTime(p0 * c.scoop, t);                 // the squidgy bend into each note
+    o.frequency.exponentialRampToValueAtTime(p0, t + c.scoopT * c.tempo);
+    o.frequency.exponentialRampToValueAtTime(p1, t + d);
+  }
+  if (c.vib) {
+    const lfo = ctx.createOscillator(); lfo.frequency.value = c.vibRate; oscs.push(lfo);
+    const g = ctx.createGain(); g.gain.value = p0 * c.vib; lfo.connect(g); g.connect(src.frequency); g.connect(sub.frequency);
+  }
+  const mix = ctx.createGain();
+  if (c.formants) {
+    for (let k = 0; k < 2; k++) {
+      const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.Q.value = c.q;
+      f.frequency.setValueAtTime(V[s.v0 || "oo"][k] * c.fscale, t);
+      f.frequency.linearRampToValueAtTime(V[s.v1 || s.v0 || "oo"][k] * c.fscale, t + d);
+      const g = ctx.createGain(); g.gain.value = (k ? 0.6 : 1) * c.formants; src.connect(f); f.connect(g); g.connect(mix);
+    }
+  } else { const g = ctx.createGain(); g.gain.value = 0.6; src.connect(g); g.connect(mix); }
+  const sg2 = ctx.createGain(); sg2.gain.value = c.sub; sub.connect(sg2); sg2.connect(mix);
+  if (c.breath) {
+    const n = noise(); oscs.push(n);
+    const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 1.5; bp.frequency.value = V[s.v1 || s.v0 || "oo"][1] * c.fscale;
+    const g = ctx.createGain(); g.gain.value = c.breath; n.connect(bp); bp.connect(g); g.connect(mix);
+  }
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = c.lpQ;   // the "wah": a mouth opening
+  lp.frequency.setValueAtTime(c.lp0, t);
+  lp.frequency.exponentialRampToValueAtTime(c.lp1, t + Math.min(d, c.wahT * c.tempo));
+  lp.frequency.exponentialRampToValueAtTime(c.lp2, t + d);
+  mix.connect(lp); lp.connect(out); out.connect(ctx.destination);
+  for (const o of oscs) { o.start(t); o.stop(t + d + 0.05); }
+  return t + d;
+}
+function say2(parts, c) {
+  ctx = ctx || new AudioContext();
+  let t = ctx.currentTime + 0.03, end = t;
+  for (const p of parts) { end = syl2(t + (p.gap || 0) * c.tempo, p, c); t = end; }   // gaps stretch with tempo too
+  return (end - ctx.currentTime) * 1000;
+}
+const PHRASES = [
+  ["Hello!", [{ p0: .95, p1: 1.3, d: .18, v0: "oo", v1: "ee" }, { gap: .05, p0: 1.25, p1: 1.55, d: .28, v0: "ah", v1: "ee" }]],
+  ["Hey!", [{ p0: 1.1, p1: 1.6, d: .2, v0: "ah", v1: "ee" }, { gap: .14, p0: 1.15, p1: 1.75, d: .26, v0: "ah", v1: "ee" }]],
+  ["Yay!", [{ p0: 1.2, p1: 1.3, d: .13, v0: "ee" }, { gap: .06, p0: 1.45, p1: 2.0, d: .36, v0: "ah", v1: "ee" }]],
+  ["Uh-oh", [{ p0: 1.3, p1: 1.25, d: .16, v0: "ah" }, { gap: .08, p0: 1.0, p1: .72, d: .36, v0: "oh", v1: "oo" }]],
+];
+const BASE = { wave: "triangle", base: 520, tempo: 1.3, vol: .45, attack: .03, hold: .55, scoop: .8, scoopT: .06,
+  vib: 0, vibRate: 5, formants: 1, q: 5, fscale: 1.6, sub: .3, breath: 0, lp0: 4000, lp1: 4000, lp2: 4000, lpQ: .7, wahT: .1 };
+const VIBES = [
+  ["Bloop", "Water-droplet bubbles. Pure tones that swoop up into every note, with no vowel sound at all.",
+    { wave: "sine", formants: 0, sub: .6, scoop: .5, scoopT: .07, lp0: 500, lp1: 3000, lp2: 1500, wahT: .08, tempo: 1.25, vol: .42 }],
+  ["Jelly", "Wobbly and squelchy. Lower and rounder, with a mouth that opens on every syllable (\"bwow\").",
+    { wave: "sawtooth", formants: 0, base: 400, sub: .5, scoop: .7, scoopT: .09, lp0: 250, lp1: 2200, lp2: 700, lpQ: 9, wahT: .12, tempo: 1.4, vol: .32 }],
+  ["Mochi", "Soft and sleepy-sweet. A closed-mouth hum that's gentle, slow and squishy.",
+    { wave: "triangle", base: 470, formants: .8, q: 3.5, sub: .7, scoop: .82, lp0: 900, lp1: 1600, lp2: 900, wahT: .15, tempo: 1.6, attack: .06, vol: .55 }],
+  ["Coo", "A baby-ish \"ooh\" with a little breath in it, plus a very slow, tiny wave in the voice.",
+    { wave: "triangle", base: 600, formants: 1.1, q: 4, fscale: 1.5, sub: .35, breath: .25, vib: .012, vibRate: 4.5, scoop: .85, lp0: 1500, lp1: 3500, lp2: 2000, tempo: 1.5, attack: .05, vol: .6 }],
+  ["Pip", "Tiny and high, like a little chick. Short, bright and still slow-ish.",
+    { wave: "sine", base: 820, formants: 0, sub: .5, scoop: .72, scoopT: .04, lp0: 2500, lp1: 6000, lp2: 3000, tempo: 1.1, vol: .4 }],
+  ["Gloop", "Deep, goofy and extra squidgy. Big lazy bends, like talking through jelly.",
+    { wave: "sawtooth", base: 300, formants: .9, q: 6, fscale: 1.3, sub: .6, scoop: .55, scoopT: .14, lp0: 300, lp1: 1600, lp2: 500, lpQ: 6, wahT: .18, tempo: 1.65, vol: .55 }],
+];
+const vb = document.getElementById("vibes");
+for (const [name, desc, cfg] of VIBES) {
+  const c = { ...BASE, ...cfg };
+  const row = document.createElement("div"); row.className = "vibe";
+  row.innerHTML = `<div><h3>${name}</h3><p>${desc}</p></div>`;
+  const g = document.createElement("div"); g.className = "grid";
+  PHRASES.forEach(([label, parts]) => g.appendChild(card(name, label, b => {
+    b.classList.add("playing"); const ms = say2(parts, c); setTimeout(() => b.classList.remove("playing"), ms);
+  })));
+  row.appendChild(g); vb.appendChild(row);
+}
+
+// ---- Round 3: the Jelly family. A buzzy source through a resonant low-pass "mouth"; each syllable has
+// a consonant (how the mouth opens), a vowel (how far it opens) and an ending (how it closes). ----
+const CUT = { u: 650, o: 1000, a: 1700, e: 2300, i: 3000 };
+const curveOf = (n, f) => { const a = new Float32Array(n); for (let i = 0; i < n; i++) a[i] = f(i / (n - 1)); return a; };
+function syl3(t, s, c) {
+  const d = s.d * c.tempo, P0 = s.p0 * c.base, P1 = (s.p1 ?? s.p0) * c.base, sT = Math.min(c.scoopT * c.tempo, d * .5);
+  const b = c.bright, V = CUT[s.v || "a"] * b, on = s.on ?? "b", soft = /^(m|n|ny)$/.test(on);
+  const pitch = x => {
+    const tt = x * d;
+    let f = tt < sT ? P0 * Math.pow(c.scoop, 1 - tt / sT) : P0 * Math.pow(P1 / P0, (tt - sT) / (d - sT));
+    const bs = d * .35;                                              // "boing": a jelly wobble that dies away
+    if (s.boing && tt > bs) f *= 1 + s.boing * Math.exp(-(tt - bs) * 7) * Math.sin(2 * Math.PI * 8 * (tt - bs));
+    return f;
+  };
+  const ramp = (lo, hi, tt, t0, len) => lo * Math.pow(hi / lo, Math.min(Math.max((tt - t0) / len, 0), 1));
+  const cutoff = x => {
+    const tt = x * d, k = c.tempo;
+    let v;
+    if (on === "b" || on === "p") v = ramp(220 * b, V, tt, 0, .06 * k);
+    else if (on === "m") v = ramp(300 * b, V, tt, .05 * k, .07 * k);
+    else if (on === "n") v = ramp(550 * b, V, tt, .035 * k, .05 * k);
+    else if (on === "ny") v = tt < .07 * k ? ramp(550 * b, 3000 * b, tt, .035 * k, .035 * k) : ramp(3000 * b, V, tt, .07 * k, .07 * k);
+    else if (on === "w") v = ramp(280 * b, V, tt, 0, d * .45);
+    else v = V;                                                    // "t", "bl" and no consonant start open
+    if (s.end === "close") v *= Math.pow(400 * b / v, Math.min(Math.max((x - .6) / .4, 0), 1));
+    else if (s.end === "drop") v *= Math.pow(.22, x);
+    else v *= Math.pow(.8, x);
+    if (on === "bl" || s.flut) v *= .3 + .7 * (.5 + .5 * Math.sin(2 * Math.PI * (s.flut || c.flut) * tt));   // blblbl
+    return Math.min(Math.max(v, 80), 12000);
+  };
+  const atk = soft ? .035 : .01, vol = (s.vol || 1) * c.vol;
+  const gain = x => { const tt = x * d; return vol * (tt < atk ? tt / atk : x > .65 ? Math.pow(.001, (x - .65) / .35) : 1); };
+  const N = 256, src = ctx.createOscillator(), sub = ctx.createOscillator(); src.type = c.wave; sub.type = "sine";
+  const pc = curveOf(N, pitch); src.frequency.setValueCurveAtTime(pc, t, d); sub.frequency.setValueCurveAtTime(pc, t, d);
+  const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = c.q; lp.frequency.setValueCurveAtTime(curveOf(N, cutoff), t, d);
+  const out = ctx.createGain(); out.gain.setValueCurveAtTime(curveOf(N, gain), t, d);
+  const sg = ctx.createGain(), sbg = ctx.createGain(); sg.gain.value = .6; sbg.gain.value = c.sub;
+  src.connect(sg); sg.connect(lp); sub.connect(sbg); sbg.connect(lp); lp.connect(out); out.connect(ctx.destination);
+  for (const o of [src, sub]) { o.start(t); o.stop(t + d + .02); }
+  if (on === "p" || on === "t") {                                  // a wet little pop or a tongue click
+    const n = noise(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    f.type = on === "p" ? "bandpass" : "highpass"; f.frequency.value = on === "p" ? 900 : 3500; f.Q.value = 1;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime((on === "p" ? .5 : .25) * c.vol * 2, t + .003); g.gain.exponentialRampToValueAtTime(.0001, t + .02);
+    n.connect(f); f.connect(g); g.connect(ctx.destination); n.start(t); n.stop(t + .03);
+  }
+  return t + d;
+}
+function say3(parts, c) {
+  ctx = ctx || new AudioContext();
+  let t = ctx.currentTime + .03, end = t;
+  for (const p of parts) { end = syl3(t + (p.gap || 0) * c.tempo, p, c); t = end; }
+  return (end - ctx.currentTime) * 1000;
+}
+const J = { wave: "sawtooth", base: 400, tempo: 1.4, q: 9, bright: 1.3, scoop: .7, scoopT: .09, sub: .5, flut: 22, vol: .35 };
+const FAMILY = [
+  ["Jelly", "The original you liked: \"bwow\". One big squelchy mouth-open per syllable.", J, {
+    "Hello!": [{ p0: .95, p1: 1.3, d: .18, v: "a", end: "close" }, { gap: .05, p0: 1.25, p1: 1.55, d: .28, v: "a", end: "close" }],
+    "Hey!": [{ p0: 1.1, p1: 1.6, d: .2, v: "a", end: "close" }, { gap: .14, p0: 1.15, p1: 1.75, d: .26, v: "a", end: "close" }],
+    "Yay!": [{ p0: 1.2, p1: 1.3, d: .13, v: "a", end: "close" }, { gap: .06, p0: 1.45, p1: 2, d: .36, v: "a", end: "close" }],
+    "Uh-oh": [{ p0: 1.3, p1: 1.25, d: .16, v: "a", end: "close" }, { gap: .08, p0: 1, p1: .72, d: .36, v: "a", end: "close" }],
+  }],
+  ["Chatterbox", "Quick little gibberish: \"bi-di-bwah!\", \"ti-ka!\". Talks a lot and fast.", { ...J, base: 470, tempo: 1, q: 6, vol: .38 }, {
+    "Hello!": [{ p0: 1, p1: 1.1, d: .07, v: "i" }, { gap: .015, on: "t", p0: 1.2, p1: 1.25, d: .06, v: "i" }, { gap: .02, p0: 1.3, p1: 1.6, d: .18, v: "a", end: "close" }],
+    "Hey!": [{ on: "t", p0: 1.3, p1: 1.35, d: .06, v: "i" }, { gap: .015, on: "t", p0: 1.5, p1: 1.7, d: .1, v: "a" }, { gap: .1, on: "t", p0: 1.35, p1: 1.4, d: .06, v: "i" }, { gap: .015, on: "t", p0: 1.6, p1: 1.85, d: .12, v: "a" }],
+    "Yay!": [{ p0: 1.1, d: .055, v: "i" }, { gap: .015, p0: 1.25, d: .055, v: "i" }, { gap: .015, p0: 1.4, d: .055, v: "i" }, { gap: .02, p0: 1.6, p1: 2.1, d: .2, v: "e" }],
+    "Uh-oh": [{ p0: 1.3, p1: 1.25, d: .08, v: "o" }, { gap: .02, on: "t", p0: 1.15, d: .08, v: "o" }, { gap: .03, p0: 1, p1: .75, d: .22, v: "u", end: "close" }],
+  }],
+  ["Blubber", "Wet and bubbly, like blowing raspberries through jelly: \"blblbl-wub!\"", { ...J, base: 230, tempo: 1.2, q: 12, bright: 1.1, vol: .28 }, {
+    "Hello!": [{ on: "bl", p0: 1, p1: 1.15, d: .22, v: "o" }, { gap: .04, on: "w", p0: 1.3, p1: 1.6, d: .24, v: "a", end: "close" }],
+    "Hey!": [{ on: "bl", p0: 1.2, p1: 1.5, d: .16, v: "a" }, { gap: .12, on: "bl", p0: 1.3, p1: 1.7, d: .2, v: "a" }],
+    "Yay!": [{ on: "bl", flut: 26, p0: 1.1, p1: 1.9, d: .4, v: "e" }, { gap: .02, on: "w", p0: 2, p1: 2.3, d: .18, v: "i" }],
+    "Uh-oh": [{ on: "bl", p0: 1.3, p1: 1.25, d: .16, v: "o" }, { gap: .07, on: "bl", p0: 1, p1: .7, d: .4, v: "u", end: "close" }],
+  }],
+  ["Mlem", "Soft and nasal: \"mm-nyah!\", \"nyeh?\", \"mi-mi-myaa!\". The mouth eases open instead of popping.", { ...J, base: 440, tempo: 1.3, q: 5, bright: 1, sub: .6, vol: .35 }, {
+    "Hello!": [{ on: "m", p0: .95, p1: 1.05, d: .16, v: "u" }, { gap: .03, on: "ny", p0: 1.25, p1: 1.5, d: .24, v: "a" }],
+    "Hey!": [{ on: "ny", p0: 1.2, p1: 1.5, d: .18, v: "e" }, { gap: .14, on: "ny", p0: 1.3, p1: 1.7, d: .22, v: "e" }],
+    "Yay!": [{ on: "m", p0: 1.2, d: .08, v: "i" }, { gap: .03, on: "m", p0: 1.35, d: .08, v: "i" }, { gap: .03, on: "ny", p0: 1.5, p1: 2, d: .3, v: "a" }],
+    "Uh-oh": [{ on: "m", p0: 1.3, p1: 1.25, d: .14, v: "a" }, { gap: .06, on: "n", p0: 1, p1: .72, d: .36, v: "o", end: "close" }],
+  }],
+  ["Boing", "Rubbery and springy: every word wobbles at the end like poked jelly. \"Boing-oing!\"", { ...J, base: 330, tempo: 1.3, q: 8, vol: .36 }, {
+    "Hello!": [{ p0: 1, p1: 1.2, d: .22, v: "o", end: "close", boing: .12 }, { gap: .03, on: "", p0: 1.3, p1: 1.45, d: .26, v: "o", end: "close", boing: .15 }],
+    "Hey!": [{ p0: 1.2, p1: 1.6, d: .22, v: "a", boing: .15 }, { gap: .12, p0: 1.3, p1: 1.8, d: .26, v: "a", boing: .18 }],
+    "Yay!": [{ p0: 1.1, d: .1, v: "o", boing: .08 }, { gap: .01, on: "", p0: 1.3, d: .1, v: "o" }, { gap: .01, on: "", p0: 1.5, p1: 2.2, d: .34, v: "a", boing: .2 }],
+    "Uh-oh": [{ p0: 1.3, p1: 1.25, d: .14, v: "a" }, { gap: .07, on: "w", p0: 1, p1: .6, d: .5, v: "o", end: "close", boing: .1 }],
+  }],
+  ["Squelch", "Drippy little pops: \"plip-plop!\", \"pwip!\". Short, wet and plucky.", { ...J, base: 380, tempo: 1.2, q: 10, bright: 1.2, vol: .28 }, {
+    "Hello!": [{ on: "p", p0: 1.2, p1: 1.5, d: .09, v: "i", end: "drop" }, { gap: .06, on: "p", p0: 1, p1: 1.3, d: .14, v: "o", end: "drop" }],
+    "Hey!": [{ on: "p", p0: 1.3, p1: 1.8, d: .12, v: "i", end: "drop" }, { gap: .12, on: "p", p0: 1.4, p1: 2, d: .14, v: "i", end: "drop" }],
+    "Yay!": [{ on: "p", p0: 1.2, p1: 1.4, d: .07, v: "i", end: "drop" }, { gap: .04, on: "p", p0: 1.4, p1: 1.6, d: .07, v: "i", end: "drop" }, { gap: .04, on: "p", p0: 1.5, p1: 1.6, d: .08, v: "u" }, { on: "", p0: 1.7, p1: 2.2, d: .24, v: "i" }],
+    "Uh-oh": [{ on: "p", p0: 1.2, p1: 1.1, d: .12, v: "o", end: "drop" }, { gap: .12, on: "p", p0: 1, p1: .62, d: .4, v: "u", end: "close" }],
+  }],
+];
+const fam = document.getElementById("family");
+for (const [name, desc, cfg, phrases] of FAMILY) {
+  const row = document.createElement("div"); row.className = "vibe";
+  row.innerHTML = `<div><h3>${name}</h3><p>${desc}</p></div>`;
+  const g = document.createElement("div"); g.className = "grid";
+  for (const [label, parts] of Object.entries(phrases)) g.appendChild(card(name, label, b => {
+    b.classList.add("playing"); const ms = say3(parts, cfg); setTimeout(() => b.classList.remove("playing"), ms);
+  }));
+  row.appendChild(g); fam.appendChild(row);
+}
+
+// ---- Round 4: same little phrases, different instruments. Each instrument builds its own sound for one
+// syllable from a shared pitch curve; vol is normalised at load so no row is much louder than another. ----
+function pcurve(s, c, d) {
+  const P0 = s.p0 * c.base, P1r = Math.pow((s.p1 ?? s.p0) / s.p0, c.exag || 1), sT = Math.min(.05 * c.tempo, d * .5);
+  const ph1 = Math.random() * 6, ph2 = Math.random() * 6;
+  return curveOf(256, x => {
+    const tt = x * d;
+    let f = P0 * Math.pow(P1r, x);
+    if (c.scoop && tt < sT) f *= Math.pow(c.scoop, 1 - tt / sT);
+    if (c.jit) f *= 1 + c.jit * (Math.sin(ph1 + tt * 2 * Math.PI * 13) + .6 * Math.sin(ph2 + tt * 2 * Math.PI * 23));
+    if (c.vib && tt > .08) f *= 1 + c.vib * Math.min((tt - .08) / .1, 1) * Math.sin(2 * Math.PI * 5.5 * (tt - .08));
+    if (c.quant) f = 440 * Math.pow(2, Math.round(12 * Math.log2(f / 440)) / 12);   // 8-bit staircase slides
+    return f;
+  });
+}
+function oscAt(type, pc, ratio, t, d, stop) {
+  const o = ctx.createOscillator();
+  if (type instanceof PeriodicWave) o.setPeriodicWave(type); else o.type = type;
+  o.frequency.setValueCurveAtTime(ratio === 1 ? pc : pc.map(v => v * ratio), t, d);
+  o.start(t); o.stop(stop); return o;
+}
+function envGain(t, d, atk, peak, hold = .6) {           // attack, hold, then a smooth fade inside the syllable
+  const g = ctx.createGain();
+  g.gain.setValueCurveAtTime(curveOf(128, x => { const tt = x * d; return peak * (tt < atk ? tt / atk : x > hold ? Math.pow(.001, (x - hold) / (1 - hold)) : 1); }), t, d);
+  return g;
+}
+function pluckGain(t, peak, ring) {                       // instant hit, long natural ring-out
+  const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + .004);
+  g.gain.exponentialRampToValueAtTime(.0001, t + ring); return g;
+}
+function burst(t, dst, type, freq, amt, len = .008) {   // a tiny click or breath of noise
+  const n = noise(), f = ctx.createBiquadFilter(), g = ctx.createGain(); f.type = type; f.frequency.value = freq;
+  g.gain.setValueAtTime(amt, t); g.gain.exponentialRampToValueAtTime(.0001, t + len);
+  n.connect(f); f.connect(g); g.connect(dst); n.start(t); n.stop(t + len + .01);
+}
+const INST = {
+  kalimba(t, s, c, d, pc, dst) {
+    const ring = Math.max(d * 2.2, .45);
+    for (const [r, a, len] of [[1, 1, ring], [3, .12, .14], [5.4, .07, .05]]) {
+      const g = pluckGain(t, a, len); oscAt("sine", pc, r, t, d, t + len + .02).connect(g); g.connect(dst);
+    }
+    burst(t, dst, "highpass", 2500, .12, .006);
+    return t + ring;
+  },
+  musicbox(t, s, c, d, pc, dst) {                          // FM: a sine wobbled by a faster sine = metal tine
+    const ring = Math.max(d * 3, .8), car = oscAt("sine", pc, 1, t, d, t + ring), mod = oscAt("sine", pc, 3.5, t, d, t + ring);
+    const idx = ctx.createGain(); idx.gain.setValueAtTime(s.p0 * c.base * 2.2, t); idx.gain.exponentialRampToValueAtTime(s.p0 * c.base * .05, t + .35);
+    mod.connect(idx); idx.connect(car.frequency);
+    const g = pluckGain(t, .9, ring); car.connect(g); g.connect(dst);
+    return t + ring;
+  },
+  ocarina(t, s, c, d, pc, dst) {
+    const g = envGain(t, d, s.atk || .05, s.vol || 1, .7);
+    oscAt("sine", pc, 1, t, d, t + d + .02).connect(g);
+    const h = ctx.createGain(); h.gain.value = .12; oscAt("sine", pc, 2, t, d, t + d + .02).connect(h); h.connect(g);
+    const n = noise(), bp = ctx.createBiquadFilter(), ng = ctx.createGain(); bp.type = "bandpass"; bp.frequency.value = s.p0 * c.base * 2; bp.Q.value = 2; ng.gain.value = c.breath ?? .06;
+    n.connect(bp); bp.connect(ng); ng.connect(g); n.start(t); n.stop(t + d + .02);
+    g.connect(dst); return t + d;
+  },
+  whistle(t, s, c, d, pc, dst) {
+    const g = envGain(t, d, .03, 1, .75);
+    oscAt("sine", pc, 1, t, d, t + d + .02).connect(g);
+    const n = noise(), bp = ctx.createBiquadFilter(), ng = ctx.createGain(); bp.type = "bandpass"; bp.frequency.value = 3000; bp.Q.value = 1; ng.gain.value = .05;
+    n.connect(bp); bp.connect(ng); ng.connect(g); n.start(t); n.stop(t + d + .02);
+    g.connect(dst); return t + d;
+  },
+  kazoo(t, s, c, d, pc, dst) {                             // buzzy and nasal: a saw, a little fuzz, "eh" formants
+    const g = envGain(t, d, .02, 1, .7), sh = ctx.createWaveShaper();
+    sh.curve = curveOf(512, x => Math.tanh(4 * (x * 2 - 1)));
+    oscAt("sawtooth", pc, 1, t, d, t + d + .02).connect(sh);
+    for (const [f, q, a] of [[700, 7, 1], [1900, 9, .8], [3000, 6, .35]]) {
+      const bp = ctx.createBiquadFilter(), fg = ctx.createGain(); bp.type = "bandpass"; bp.frequency.value = f * 1.25; bp.Q.value = q; fg.gain.value = a;
+      sh.connect(bp); bp.connect(fg); fg.connect(g);
+    }
+    g.connect(dst); return t + d;
+  },
+  squeaky(t, s, c, d, pc, dst) {                           // a squeezed rubber toy: narrow whistle + air, wobbling pitch
+    const g = envGain(t, d, .012, 1, .55);
+    const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 12; bp.frequency.setValueCurveAtTime(pc.map(v => v * 2), t, d);
+    oscAt("square", pc, 1, t, d, t + d + .02).connect(bp); bp.connect(g);
+    const sn = ctx.createGain(); sn.gain.value = .5; oscAt("sine", pc, 1, t, d, t + d + .02).connect(sn); sn.connect(g);
+    const n = noise(), nb = ctx.createBiquadFilter(), ng = ctx.createGain(); nb.type = "bandpass"; nb.frequency.value = 4000; nb.Q.value = 2; ng.gain.value = .12;
+    n.connect(nb); nb.connect(ng); ng.connect(g); n.start(t); n.stop(t + d + .02);
+    g.connect(dst); return t + d;
+  },
+  chip(t, s, c, d, pc, dst) {                              // 8-bit: a 25% pulse wave with staircase slides
+    const pw = ctx.createPeriodicWave(new Float32Array(33), Float32Array.from({ length: 33 }, (_, n) => n ? 2 / (n * Math.PI) * Math.sin(n * Math.PI * .25) : 0));
+    const g = envGain(t, d, .002, 1, .82); oscAt(pw, pc, 1, t, d, t + d + .02).connect(g); g.connect(dst); return t + d;
+  },
+  theremin(t, s, c, d, pc, dst) {                          // the classic flying-saucer voice: smooth, glidey, a gentle waver
+    const g = envGain(t, d, .06, 1, .7);
+    oscAt("sine", pc, 1, t, d, t + d + .02).connect(g);
+    const tri = ctx.createGain(); tri.gain.value = .25; oscAt("triangle", pc, 1, t, d, t + d + .02).connect(tri); tri.connect(g);
+    g.connect(dst); return t + d;
+  },
+};
+function say4(parts, inst, c) {
+  ctx = ctx || new AudioContext();
+  const master = ctx.createGain(); master.gain.value = c.vol * (c.norm || 1); master.connect(ctx.destination);
+  let t = ctx.currentTime + .03, end = t, ring = t;
+  for (const p of parts) {
+    const s0 = t + (p.gap || 0) * c.tempo, d = p.d * c.tempo;
+    ring = Math.max(ring, INST[inst](s0, p, c, d, pcurve(p, c, d), master));
+    end = s0 + d; t = end;
+  }
+  return (Math.max(end, ring) - ctx.currentTime) * 1000;
+}
+const PJ = FAMILY[0][3], PC = FAMILY[1][3];                // Jelly's phrases, Chatterbox's chattier ones
+const INSTRUMENTS = [
+  ["Kalimba", "Plucked metal tines with a soft click, ringing out like a thumb piano. Chatty and twinkly.", "kalimba", { base: 520, tempo: 1.15, vol: 1 }, PC],
+  ["Music box", "Tiny bell-like tines (FM synthesis). Sparkly, delicate and a bit magical.", "musicbox", { base: 760, tempo: 1.2, vol: 1 }, PC],
+  ["Ocarina", "A breathy clay flute. Round, warm and sweet, with soft starts.", "ocarina", { base: 600, tempo: 1.4, vol: 1, scoop: .92 }, PJ],
+  ["Slide whistle", "A pure whistle with huge, goofy slides. Very cartoon.", "whistle", { base: 700, tempo: 1.35, vol: 1, exag: 2.2, scoop: .85 }, PJ],
+  ["Kazoo", "Buzzy and nasal, like humming through paper. Comedic \"mweh\".", "kazoo", { base: 300, tempo: 1.3, vol: 1, scoop: .85 }, PJ],
+  ["Squeaky toy", "A squeezed rubber toy, with a slightly wobbly squeak.", "squeaky", { base: 1050, tempo: 1.1, vol: 1, jit: .012, exag: 1.4 }, PC],
+  ["Chiptune", "8-bit video-game blips with stepped slides. Retro and crisp.", "chip", { base: 520, tempo: 1.1, vol: 1, quant: 1, exag: 1.5 }, PC],
+  ["Theremin", "The classic flying-saucer instrument: smooth, swoopy and eerie-cute.", "theremin", { base: 560, tempo: 1.55, vol: 1, exag: 1.6, vib: .012, scoop: .8 }, PJ],
+];
+const ins = document.getElementById("instruments");
+{
+  const row = document.createElement("div"); row.className = "vibe";
+  row.innerHTML = `<div><h3>Jelly</h3><p>Reference: the squelchy synth you liked.</p></div>`;
+  const g = document.createElement("div"); g.className = "grid";
+  for (const [label, parts] of Object.entries(PJ)) g.appendChild(card("Jelly", label, b => { b.classList.add("playing"); setTimeout(() => b.classList.remove("playing"), say3(parts, FAMILY[0][2])); }));
+  row.appendChild(g); ins.appendChild(row);
+}
+for (const [name, desc, inst, cfg, phrases] of INSTRUMENTS) {
+  const row = document.createElement("div"); row.className = "vibe";
+  row.innerHTML = `<div><h3>${name}</h3><p>${desc}</p></div>`;
+  const g = document.createElement("div"); g.className = "grid";
+  for (const [label, parts] of Object.entries(phrases)) g.appendChild(card(name, label, b => {
+    b.classList.add("playing"); setTimeout(() => b.classList.remove("playing"), say4(parts, inst, cfg));
+  }));
+  row.appendChild(g); ins.appendChild(row);
+}
+// Loudness: render each instrument silently once and scale it to roughly Jelly's level.
+(async () => {
+  const live = ctx;
+  for (const [, , inst, cfg, phrases] of INSTRUMENTS) {
+    let ss = 0, n = 0, pk = 0;
+    for (const parts of Object.values(phrases)) {
+      ctx = new OfflineAudioContext(1, 44100 * 3, 44100); noiseBuf = null;
+      const ms = say4(parts, inst, { ...cfg, norm: 1 });
+      const d = (await ctx.startRendering()).getChannelData(0), len = Math.min(d.length, Math.round(44100 * ms / 1000));
+      for (let i = 0; i < len; i++) { ss += d[i] * d[i]; pk = Math.max(pk, Math.abs(d[i])); } n += len;
+    }
+    cfg.norm = Math.min(.17 / Math.sqrt(ss / n), .85 / pk);
+  }
+  ctx = live; noiseBuf = null;
+})();
+
+// ---- Round 5: the ocarina voice, one row per moment. Pitches are ratios of the base note
+// (1.26 ≈ a major third up, 1.5 a fifth, 2 an octave), so every phrase stays musical. ----
+const OC = INSTRUMENTS.find(r => r[2] === "ocarina")[3];
+const MOMENTS = [
+  ["Hello", "You start a session after 2+ hours away.", true, {
+    a: ["Hi-iii!", [{ p0: 1, p1: 1.26, d: .16 }, { gap: .04, p0: 1.26, p1: 1.5, d: .3 }]],
+    b: ["Hel-lo-ooo?", [{ p0: 1.2, d: .12 }, { gap: .03, p0: 1.5, d: .12 }, { gap: .03, p0: 1.26, p1: 1.68, d: .32 }]],
+    c: ["Oh! Hi!", [{ p0: 1.68, p1: 1.5, d: .12 }, { gap: .1, p0: 1.26, p1: 1.68, d: .26 }]],
+  }],
+  ["Needs you", "A session is asking permission or a question. The important one.", true, {
+    a: ["Hey! Hey!", [{ p0: 1.5, p1: 1.6, d: .14 }, { gap: .12, p0: 1.5, p1: 1.8, d: .2 }]],
+    b: ["Psst, hey?", [{ p0: 1.26, d: .1 }, { gap: .05, p0: 1.5, p1: 2, d: .28 }]],
+    c: ["Ding-dong", [{ p0: 2, d: .16 }, { gap: .02, p0: 1.5, d: .3 }]],
+  }],
+  ["Still waiting", "Once, if you haven't answered after 45 seconds. Softer and a little pleading.", true, {
+    a: ["Heyyy?", [{ p0: 1.5, p1: 1.4, d: .18, vol: .75 }, { gap: .08, p0: 1.26, p1: 1.6, d: .38, vol: .75 }]],
+    b: ["Sigh… hm?", [{ p0: 1.68, p1: 1.26, d: .4, vol: .7 }, { gap: .06, p0: 1.26, p1: 1.5, d: .22, vol: .7 }]],
+  }],
+  ["Finished", "A session is done and nothing else is going on: the big celebration.", true, {
+    a: ["Do-mi-sol-DO!", [{ p0: 1, d: .09 }, { gap: .02, p0: 1.26, d: .09 }, { gap: .02, p0: 1.5, d: .09 }, { gap: .02, p0: 2, p1: 2.1, d: .35 }]],
+    b: ["Ta-da!", [{ p0: 1.5, d: .12 }, { gap: .05, p0: 2, d: .42 }]],
+    c: ["Wheee!", [{ p0: 1.26, p1: 2.2, d: .45 }]],
+  }],
+  ["Finished (while busy)", "A session is done while others are still working: a quick little cheer.", true, {
+    a: ["Yip!", [{ p0: 1.5, p1: 2, d: .14 }]],
+    b: ["Mm-hm!", [{ p0: 1.26, d: .1 }, { gap: .02, p0: 1.5, p1: 1.7, d: .15 }]],
+  }],
+  ["Uh-oh", "A tool call failed (at most once every 20 seconds).", true, {
+    a: ["Uh-oh", [{ p0: 1.26, p1: 1.22, d: .16 }, { gap: .08, p0: 1, p1: .8, d: .36 }]],
+    b: ["Whoops… hm", [{ p0: 1.68, p1: 1, d: .35 }, { gap: .1, p0: .9, p1: .95, d: .12, vol: .7 }]],
+  }],
+  ["Thanks", "You answered his question or approved a permission, and he's back to work.", true, {
+    a: ["Thank-you", [{ p0: 1.5, d: .12 }, { gap: .03, p0: 1.26, p1: 1.33, d: .24 }]],
+    b: ["Ooh!", [{ p0: 1.26, p1: 1.6, d: .22 }]],
+  }],
+  ["Long job", "Something has been working for 10+ minutes.", false, {
+    a: ["Hnnngh… phew", [{ p0: 1, p1: 1.05, d: .4, vol: .7 }, { gap: .1, p0: 1.26, p1: .9, d: .4, vol: .6 }]],
+    b: ["Hum-dee-dum", [{ p0: 1, d: .16, vol: .7 }, { gap: .02, p0: 1.12, d: .16, vol: .7 }, { gap: .02, p0: 1, p1: .94, d: .3, vol: .7 }]],
+  }],
+  ["Goodnight", "When he switches to night mode (10pm). After this he stays quiet until morning.", true, {
+    a: ["Yaaawn", [{ p0: 1.5, p1: .8, d: .7, vol: .6, atk: .12 }, { gap: .15, p0: .84, d: .25, vol: .4 }]],
+    b: ["Lullaby", [{ p0: 1.5, d: .3, vol: .6 }, { gap: .04, p0: 1.26, d: .3, vol: .6 }, { gap: .04, p0: 1, d: .55, vol: .55 }]],
+  }],
+  ["Waking up", "When the display is plugged in or restarts.", true, {
+    a: ["Boot-up scale", [{ p0: 1, d: .07 }, { gap: .01, p0: 1.12, d: .07 }, { gap: .01, p0: 1.26, d: .07 }, { gap: .01, p0: 1.5, d: .07 }, { gap: .01, p0: 2, d: .25 }]],
+    b: ["Mm… oh!", [{ p0: .9, p1: 1.1, d: .3, vol: .6, atk: .1 }, { gap: .1, p0: 1.5, p1: 1.8, d: .2 }]],
+  }],
+  ["On it", "Every time you send a message. You just typed, so this is off by default.", false, {
+    a: ["Mm-hm", [{ p0: 1, p1: 1.1, d: .08 }, { gap: .02, p0: 1.26, p1: 1.35, d: .12 }]],
+    b: ["Okie!", [{ p0: 1.26, d: .08 }, { gap: .03, p0: 1.68, d: .16 }]],
+  }],
+  ["Fidget", "Every so often while idle, a tiny random noise. Off by default (could get annoying).", false, {
+    a: ["Hm?", [{ p0: 1, p1: 1.33, d: .25, vol: .6 }]],
+    b: ["Doo-dee", [{ p0: 1.12, d: .14, vol: .6 }, { gap: .03, p0: 1.33, d: .18, vol: .6 }]],
+  }],
+];
+// Your choices: which moments are on, which versions are ticked, and the voice sliders.
+// Kept in window.LUMP_SETTINGS (Claude reads it from there) and in this browser's storage when it's allowed.
+const KEY = "lump-sound-settings-v1";
+const slug = s => s.toLowerCase().replace(/[^a-z]+/g, "_").replace(/^_|_$/g, "");
+function defaults() {
+  return { voice: "ocarina", pitch: 600, speed: 1.4, breath: .06,
+    moments: Object.fromEntries(MOMENTS.map(([name, , on, opts]) => [slug(name), { on, pick: Object.keys(opts) }])) };
+}
+let S = defaults();
+try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved && saved.moments) S = { ...S, ...saved, moments: { ...S.moments, ...saved.moments } }; } catch (e) {}
+window.LUMP_SETTINGS = S;
+function save() { window.LUMP_SETTINGS = S; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} renderSummary(); }
+const lastPlayed = {};
+function pickOne(id, keys) {                        // random, but never the same one twice in a row
+  const pool = keys.length > 1 ? keys.filter(k => k !== lastPlayed[id]) : keys;
+  return lastPlayed[id] = pool[Math.floor(Math.random() * pool.length)];
+}
+const mo = document.getElementById("moments");
+const rows = {};
+for (const [name, when, , opts] of MOMENTS) {
+  const id = slug(name), m = S.moments[id];
+  const row = document.createElement("div"); row.className = "vibe";
+  row.innerHTML = `<div class="mhead"><h3>${name}</h3><p class="when">${when}</p>
+    <div class="ctl"><button class="switch" role="switch" aria-label="${name} sound on"></button><span class="swlabel"></span><button class="mini try">▶ Try</button></div></div>`;
+  const sw = row.querySelector(".switch"), lab = row.querySelector(".swlabel");
+  const g = document.createElement("div"); g.className = "grid";
+  const optEls = {};
+  for (const [k, [label, parts]] of Object.entries(opts)) {
+    const wrap = document.createElement("div"); wrap.className = "opt";
+    wrap.appendChild(card(`version ${k}`, label, b => { b.classList.add("playing"); setTimeout(() => b.classList.remove("playing"), say4(parts, "ocarina", OC)); }));
+    const tick = document.createElement("button"); tick.className = "tick"; tick.setAttribute("aria-label", `Use "${label}"`); tick.innerHTML = "<span>✓</span>";
+    tick.addEventListener("click", () => {
+      m.pick = m.pick.includes(k) ? m.pick.filter(x => x !== k) : [...m.pick, k].sort();
+      if (m.pick.length && !m.on) m.on = true;      // ticking something turns the moment on
+      if (!m.pick.length) m.on = false;             // unticking everything turns it off
+      paint(); save();
+    });
+    wrap.appendChild(tick); g.appendChild(wrap); optEls[k] = wrap;
+  }
+  function paint() {
+    sw.setAttribute("aria-checked", m.on); lab.textContent = m.on ? "on" : "off"; row.classList.toggle("off", !m.on);
+    for (const [k, el] of Object.entries(optEls)) { el.classList.toggle("picked", m.pick.includes(k)); el.querySelector(".tick").setAttribute("aria-pressed", m.pick.includes(k)); }
+  }
+  sw.addEventListener("click", () => { m.on = !m.on; if (m.on && !m.pick.length) m.pick = Object.keys(opts); paint(); save(); });
+  row.querySelector(".try").addEventListener("click", () => {
+    const keys = m.pick.length ? m.pick : Object.keys(opts), k = pickOne(id, keys);
+    const el = optEls[k].querySelector(".snd"); el.click();
+  });
+  rows[id] = paint; paint();
+  row.appendChild(g); mo.appendChild(row);
+}
+const SLIDERS = [["tPitch", "base", "pitch", v => `${v} Hz`], ["tSpeed", "tempo", "speed", v => `${(+v).toFixed(2)}× slower`], ["tBreath", "breath", "breath", v => (+v).toFixed(2)]];
+function paintSliders() {
+  for (const [id, key, sk, fmt] of SLIDERS) {
+    const el = document.getElementById(id); el.value = S[sk]; OC[key] = +S[sk];
+    document.getElementById("v" + id.slice(1)).textContent = fmt(S[sk]);
+  }
+}
+for (const [id, key, sk, fmt] of SLIDERS) {
+  const el = document.getElementById(id), out = document.getElementById("v" + id.slice(1));
+  el.addEventListener("input", () => { S[sk] = OC[key] = +el.value; out.textContent = fmt(el.value); save(); });
+}
+function renderSummary() {
+  const ul = document.getElementById("summary");
+  ul.innerHTML = MOMENTS.map(([name, , , opts]) => {
+    const m = S.moments[slug(name)];
+    const picks = m.on && m.pick.length ? m.pick.map(k => `${k} “${opts[k][0]}”`).join(", ") : "silent";
+    return `<li><b>${name}</b>: ${picks}</li>`;
+  }).join("") + `<li><b>Voice</b>: ocarina, ${S.pitch} Hz, ${(+S.speed).toFixed(2)}× slower, breath ${(+S.breath).toFixed(2)}</li>`;
+}
+document.getElementById("copyBtn").addEventListener("click", async e => {
+  try { await navigator.clipboard.writeText(JSON.stringify(S, null, 2)); e.target.textContent = "Copied ✓"; }
+  catch (err) { e.target.textContent = "Couldn't copy (Claude can still read it)"; }
+  setTimeout(() => e.target.textContent = "Copy settings", 2000);
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  S = defaults(); window.LUMP_SETTINGS = S;
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  location.reload();
+});
+paintSliders(); renderSummary();
+
+const sg = document.getElementById("synth");
+LUMP.forEach(([name, parts], i) => sg.appendChild(card("A" + (i + 1), name, b => {
+  b.classList.add("playing"); const ms = say(parts); setTimeout(() => b.classList.remove("playing"), ms);
+})));
+</script>

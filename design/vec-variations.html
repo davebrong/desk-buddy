@@ -1,0 +1,631 @@
+<title>Vec Remastered</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: same casting-sheet world as round one — dim desk ground, controls, then larger
+   glass stages so the finer 3D detail can be judged; personality notes and shortlist below. */
+:root {
+  --bg: #090C12;
+  --surface: #11161F;
+  --surface-2: #171E2B;
+  --line: #222B3B;
+  --fg: #E7ECF4;
+  --muted: #8C97AB;
+  --accent: #FFB547;
+  --accent-ink: #1A1206;
+  --font-display: "Fredoka", "Avenir Next Rounded", "Nunito", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+.wrap {
+  max-width: 1220px; margin: 0 auto;
+  padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 28px;
+}
+header { display: flex; flex-direction: column; gap: 10px; max-width: 70ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(34px, 6vw, 52px); line-height: 1.02; margin: 0; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); font-size: 16px; }
+.lede strong { color: var(--fg); font-weight: 500; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.control { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.control > span { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; background: var(--bg); padding: 4px; border-radius: 10px; border: 1px solid var(--line); }
+.seg button { font: 500 14px/1 var(--font-body); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 9px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.seg button:hover { color: var(--fg); }
+.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
+.seg button[data-state="alert"][aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+.sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 18px; }
+.card { display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; min-width: 0; }
+.card.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.stage { position: relative; aspect-ratio: 1; max-width: 100%; border-radius: 10px; display: grid; place-items: center; overflow: hidden; background: #000; }
+.stage canvas { display: block; width: 288px; max-width: 100%; aspect-ratio: 1; image-rendering: pixelated; }
+body.actual .stage canvas { width: 23.4mm; }
+body.prism .stage {
+  background:
+    linear-gradient(118deg, transparent 38%, rgba(190, 215, 255, 0.07) 46%, transparent 54%),
+    radial-gradient(120% 90% at 50% 0%, #19212F 0%, #0B0F16 55%, #06080C 100%);
+  box-shadow: inset 0 0 0 1px rgba(200, 220, 255, 0.10), inset 0 18px 30px -18px rgba(200, 220, 255, 0.16);
+}
+body.prism .stage::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 30%); pointer-events: none; }
+body.prism .stage canvas { mix-blend-mode: screen; filter: drop-shadow(0 0 8px var(--glow, rgba(124, 255, 203, 0.35))); }
+.chip { position: absolute; left: 8px; top: 8px; font: 500 11px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 7px; border-radius: 6px; background: rgba(9, 12, 18, 0.75); color: var(--muted); border: 1px solid var(--line); }
+.chip.alert { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 4px; }
+.meta h2 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 22px; line-height: 1.1; }
+.meta h2 small { font-family: var(--font-body); font-weight: 400; font-size: 14px; color: var(--muted); margin-left: 6px; }
+.pick { flex: none; font: 500 13px/1 var(--font-body); color: var(--fg); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
+.pick:hover { border-color: var(--muted); }
+.pick[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.blurb { margin: 0; padding: 0 4px; color: var(--muted); font-size: 14px; }
+.specs { margin: 0; padding: 10px 4px 0; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.specs div { display: grid; grid-template-columns: 96px 1fr; gap: 8px; font-size: 13px; }
+.specs dt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding-top: 2px; }
+.specs dd { margin: 0; min-width: 0; }
+
+.lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 18px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.panel h3 { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 20px; }
+.beats { margin: 0; display: grid; gap: 10px; }
+.beats div { display: grid; grid-template-columns: 96px 1fr; gap: 10px; font-size: 14px; color: var(--muted); }
+.beats dt { color: var(--fg); font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
+.beats dd { margin: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; transform: translateY(-1px); }
+.picks { font-size: 14px; color: var(--muted); margin: 0; }
+.picks b { color: var(--fg); font-weight: 500; }
+textarea { width: 100%; min-height: 90px; resize: vertical; font: 14px/1.5 var(--font-body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+textarea::placeholder { color: #5E687B; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.primary { font: 600 14px/1 var(--font-body); background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 11px 16px; cursor: pointer; }
+.status { font-size: 13px; color: var(--muted); }
+#copyFallback { min-height: 70px; font-family: var(--font-mono); font-size: 12px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Desk buddy · character exploration · 02</div>
+    <h1>Vec, Remastered</h1>
+    <p class="lede">Five takes on the wireframe hologram, rebuilt with real 3D: lines fade as they turn away from you, the face sits on the globe and turns with it, and each moment has its own body language. Still drawn at the display's <strong>real 240 × 240 pixels</strong>.</p>
+  </header>
+
+  <section class="controls" aria-label="Preview controls">
+    <div class="control">
+      <span id="lbl-state">Moment</span>
+      <div class="seg" role="group" aria-labelledby="lbl-state" id="stateSeg">
+        <button type="button" data-state="cycle" aria-pressed="true">Cycle all</button>
+        <button type="button" data-state="idle" aria-pressed="false">Asleep</button>
+        <button type="button" data-state="working" aria-pressed="false">Working</button>
+        <button type="button" data-state="alert" aria-pressed="false">Needs you</button>
+        <button type="button" data-state="done" aria-pressed="false">Done</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-tint">Colour</span>
+      <div class="seg" role="group" aria-labelledby="lbl-tint" id="tintSeg">
+        <button type="button" data-tint="own" aria-pressed="true">Each its own</button>
+        <button type="button" data-tint="#7CFFCB" aria-pressed="false"><span class="sw" style="background:#7CFFCB"></span>Mint</button>
+        <button type="button" data-tint="#8FD8FF" aria-pressed="false"><span class="sw" style="background:#8FD8FF"></span>Ice</button>
+        <button type="button" data-tint="#C9A8FF" aria-pressed="false"><span class="sw" style="background:#C9A8FF"></span>Violet</button>
+        <button type="button" data-tint="#FF9ED2" aria-pressed="false"><span class="sw" style="background:#FF9ED2"></span>Rose</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-view">View</span>
+      <div class="seg" role="group" aria-labelledby="lbl-view" id="viewSeg">
+        <button type="button" data-view="prism" aria-pressed="true">Through the glass</button>
+        <button type="button" data-view="flat" aria-pressed="false">Flat screen</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-size">Size</span>
+      <div class="seg" role="group" aria-labelledby="lbl-size" id="sizeSeg">
+        <button type="button" data-size="large" aria-pressed="true">Large</button>
+        <button type="button" data-size="actual" aria-pressed="false">About actual size</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid" id="grid" aria-label="Vec variations"></section>
+
+  <section class="lower">
+    <div class="panel">
+      <h3>His body language</h3>
+      <dl class="beats">
+        <div><dt><span class="dot" style="background:#6F7C95"></span>Asleep</dt><dd>Head nods forward, spin slows to a crawl, the projector dims and little vector z's drift up.</dd></div>
+        <div><dt><span class="dot" style="background:#5DE0FF"></span>Working</dt><dd>Spins up, eyes dart around in quick glances, brows knit, mouth runs like a waveform and data dots orbit him.</dd></div>
+        <div><dt><span class="dot" style="background:var(--accent)"></span>Needs you</dt><dd>Stops spinning, turns to face you and looks up, brows raised, hopping. An amber "!" panel projects beside him and rings pulse from the base.</dd></div>
+        <div><dt><span class="dot" style="background:#7CFF9B"></span>Done</dt><dd>Does a full happy spin, eyes go ^ ^, a burst of pixel confetti and a ring of light from the projector.</dd></div>
+      </dl>
+    </div>
+    <div class="panel">
+      <h3>Your shortlist</h3>
+      <p class="picks" id="pickList">Nothing shortlisted yet. Use <b>Shortlist</b> on any card.</p>
+      <label for="notes" class="eyebrow">Notes for Claude</label>
+      <textarea id="notes" placeholder="e.g. Swarm's point cloud with Gyro's rings. Brows are great; mouth is too busy when working."></textarea>
+      <div class="row">
+        <button type="button" class="primary" id="copyBtn">Copy for Claude</button>
+        <span class="status" id="copyStatus" role="status"></span>
+      </div>
+      <textarea id="copyFallback" readonly hidden aria-label="Text to copy"></textarea>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+const TAU = Math.PI * 2;
+const AMB = '#FFB547', GREEN = '#7CFF9B';
+const STATES = ['idle', 'working', 'alert', 'done'];
+const STATE_LABEL = { idle: 'Asleep', working: 'Working', alert: 'Needs you', done: 'Done' };
+
+/* ---------- math ---------- */
+const hash = i => { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const ease = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+function rotX(p, a) { const c = Math.cos(a), s = Math.sin(a); return [p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c]; }
+function rotY(p, a) { const c = Math.cos(a), s = Math.sin(a); return [p[0] * c + p[2] * s, p[1], -p[0] * s + p[2] * c]; }
+function rotZ(p, a) { const c = Math.cos(a), s = Math.sin(a); return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]]; }
+function hexRGB(h) { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function rgba(h, a) { const [r, g, b] = hexRGB(h); return `rgba(${r},${g},${b},${a})`; }
+function mix(h1, h2, k) { const a = hexRGB(h1), b = hexRGB(h2); return '#' + a.map((v, i) => Math.round(v + (b[i] - v) * k).toString(16).padStart(2, '0')).join(''); }
+const depthA = z => 0.1 + 0.9 * Math.pow(clamp((z + 1) / 2, 0, 1), 1.6);
+
+/* head-frame point → posed (squash, roll, pitch, yaw) */
+function pose(p, S) {
+  let q = [p[0] * (1 - S.sq * 0.5), p[1] * (1 + S.sq), p[2] * (1 - S.sq * 0.5)];
+  q = rotZ(q, S.pose.roll); q = rotX(q, S.pose.pitch); return rotY(q, S.pose.yaw);
+}
+function proj(q, S, R) { const f = 4, k = f / (f - q[2]); return [S.cx + q[0] * R * k, S.cy - q[1] * R * k, q[2], k]; }
+const P = (p, S, R) => proj(pose(p, S), S, R);
+
+/* draw many segments [x1,y1,x2,y2,alpha] batched into alpha bins, with a soft glow underlay */
+function strokeBins(c, segs, col, width, glow = 0.16) {
+  const bins = [[], [], [], [], []];
+  for (const s of segs) bins[Math.min(4, Math.floor(s[4] * 5))].push(s);
+  c.save(); c.strokeStyle = col; c.lineCap = 'round';
+  bins.forEach((b, i) => {
+    if (!b.length) return;
+    const al = (i + 0.5) / 5;
+    c.beginPath(); for (const s of b) { c.moveTo(s[0], s[1]); c.lineTo(s[2], s[3]); }
+    if (glow) { c.globalAlpha = al * glow; c.lineWidth = width * 4; c.stroke(); }
+    c.globalAlpha = al; c.lineWidth = width; c.stroke();
+  });
+  c.restore();
+}
+function polySegs(pts, out) {
+  for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1]; out.push([a[0], a[1], b[0], b[1], depthA((a[2] + b[2]) / 2)]); }
+}
+function latLongSegs(S, R, nLon, lats, steps, deform) {
+  const segs = [];
+  for (let i = 0; i < nLon; i++) {
+    const lon = S.spin + i * Math.PI / nLon, pts = [];
+    for (let j = 0; j <= steps; j++) {
+      const th = j / steps * TAU;
+      let p = [Math.cos(th) * Math.sin(lon), Math.sin(th), Math.cos(th) * Math.cos(lon)];
+      if (deform) p = deform(p);
+      pts.push(P(p, S, R));
+    }
+    polySegs(pts, segs);
+  }
+  for (const lat of lats) {
+    const y = Math.sin(lat), r = Math.cos(lat), pts = [];
+    for (let j = 0; j <= steps; j++) {
+      const ph = j / steps * TAU + S.spin;
+      let p = [r * Math.cos(ph), y, r * Math.sin(ph)];
+      if (deform) p = deform(p);
+      pts.push(P(p, S, R));
+    }
+    polySegs(pts, segs);
+  }
+  return segs;
+}
+
+/* ---------- the face: eyes, brows and mouth live on the globe's surface ---------- */
+function face(c, S, o) {
+  const R = o.R, col = o.col, outline = o.outline;
+  const surf = (lon, lat, r = 1.03) => P([Math.sin(lon) * Math.cos(lat) * r, Math.sin(lat) * r, Math.cos(lon) * Math.cos(lat) * r], S, R);
+  c.save(); c.strokeStyle = col; c.fillStyle = col; c.lineCap = 'round'; c.lineJoin = 'round';
+  for (const s of [-1, 1]) {
+    const lon = s * o.eyeLon, lat = o.eyeLat;
+    const [x, y, z, k] = surf(lon, lat);
+    if (z < 0.05) continue;
+    const fz = clamp(z, 0.2, 1);
+    const rx = o.er * k * (0.35 + 0.65 * fz), base = o.eh * k;
+    c.globalAlpha = 0.45 + 0.55 * fz;
+    c.lineWidth = 3.2 * k;
+    if (S.mood === 'sleep') {
+      c.beginPath(); c.arc(x, y - base * 0.35, rx * 1.15, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+    } else if (S.mood === 'happy') {
+      c.beginPath(); c.arc(x, y + base * 0.5, rx * 1.15, 1.15 * Math.PI, 1.85 * Math.PI); c.stroke();
+    } else {
+      const w = S.mood === 'wide' ? 1.25 : 1;
+      const h = Math.max(2.5, base * 2 * w * (1 - S.blink)), ew = rx * 2 * w;
+      c.beginPath(); c.roundRect(x - ew / 2, y - h / 2, ew, h, Math.min(ew, h) / 2);
+      if (outline) { c.lineWidth = 2.2 * k; c.stroke(); }
+      else {
+        c.save(); c.globalAlpha *= 0.25; c.lineWidth = 7 * k; c.stroke(); c.restore();
+        c.fill();
+        if (S.blink < 0.4) { c.save(); c.fillStyle = '#ffffff'; c.globalAlpha *= 0.7; c.beginPath(); c.roundRect(x - ew * 0.22, y - h * 0.32, ew * 0.44, h * 0.3, ew * 0.2); c.fill(); c.restore(); }
+      }
+      if (S.mood === 'wide') { c.save(); c.globalAlpha *= 0.35 + 0.25 * Math.sin(S.t * 10); c.lineWidth = 1.4; c.beginPath(); c.ellipse(x, y, ew * 0.95, h * 0.75, 0, 0, TAU); c.stroke(); c.restore(); }
+    }
+    // brow
+    const bo = { sleep: [0, -0.04], look: [-0.05, 0.02], wide: [0.07, 0.03], happy: [0.03, 0.05] }[S.mood];
+    const bl = o.eyeLat + 0.3;
+    const a = surf(s * (o.eyeLon - 0.11), bl + bo[0]), b = surf(s * (o.eyeLon + 0.12), bl + bo[1]);
+    if (a[2] > 0 && b[2] > 0) { c.lineWidth = 2.6 * k; c.globalAlpha = 0.85 * fz; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); }
+  }
+  // mouth
+  const ml = o.mouthLat, pts = [];
+  if (S.mood === 'wide') {
+    for (let i = 0; i <= 20; i++) { const th = i / 20 * TAU, rr = 0.05 + 0.012 * Math.sin(S.t * 9); pts.push(surf(Math.cos(th) * rr, ml - 0.02 + Math.sin(th) * rr * 1.2)); }
+  } else {
+    const half = S.mood === 'happy' ? 0.24 : S.mood === 'sleep' ? 0.1 : 0.17;
+    for (let i = 0; i <= 24; i++) {
+      const u = i / 12 - 1;
+      let f;
+      if (S.mood === 'look') f = 0.026 * Math.sin(u * 9 + S.t * 15) * (1 - u * u) * (0.55 + 0.45 * Math.sin(S.t * 3.1)) + 0.012 * u * u;
+      else if (S.mood === 'happy') f = 0.075 * u * u - 0.05;
+      else f = 0.018 * u * u;
+      pts.push(surf(u * half, ml + f));
+    }
+  }
+  c.globalAlpha = 0.9; c.lineWidth = (S.mood === 'happy' ? 3.4 : 2.6) * (pts[12] ? pts[12][3] : 1);
+  c.beginPath(); let started = false;
+  for (const p of pts) { if (p[2] < 0.05) { started = false; continue; } started ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); started = true; }
+  c.stroke();
+  c.restore();
+}
+
+/* ---------- shared stagecraft ---------- */
+function projector(c, S, col, R) {
+  const cx = 120, y = 214;
+  c.save();
+  const g = c.createLinearGradient(0, y, 0, S.cy);
+  g.addColorStop(0, rgba(col, S.state === 'idle' ? 0.10 : 0.22)); g.addColorStop(1, rgba(col, 0));
+  c.fillStyle = g; c.beginPath();
+  c.moveTo(cx - 40, y); c.lineTo(cx - R * 0.85, S.cy + R * 0.25); c.lineTo(cx + R * 0.85, S.cy + R * 0.25); c.lineTo(cx + 40, y); c.closePath(); c.fill();
+  c.strokeStyle = col; c.lineWidth = 2; c.globalAlpha = S.state === 'idle' ? 0.45 : 0.9;
+  c.beginPath(); c.ellipse(cx, y, 44, 8, 0, 0, TAU); c.stroke();
+  c.globalAlpha *= 0.5; c.beginPath(); c.ellipse(cx, y, 28, 4.5, 0, 0, TAU); c.stroke();
+  c.fillStyle = col;
+  for (let i = 0; i < 8; i++) {
+    const a = S.t * (S.state === 'working' ? 2.4 : 0.6) + i * TAU / 8, front = Math.sin(a) > 0;
+    c.globalAlpha = (S.state === 'idle' ? 0.35 : 0.9) * (front ? 1 : 0.35);
+    c.fillRect(cx + Math.cos(a) * 44 - 1.5, y + Math.sin(a) * 8 - 1.5, 3, 3);
+  }
+  if (S.state === 'alert') {
+    c.strokeStyle = AMB; c.lineWidth = 2;
+    for (let i = 0; i < 3; i++) { const p = (S.t * 1.1 + i / 3) % 1; c.globalAlpha = (1 - p) * 0.8; c.beginPath(); c.ellipse(cx, y, 44 + p * 66, 8 + p * 12, 0, 0, TAU); c.stroke(); }
+  }
+  if (S.state === 'done' && S.st < 1.1) {
+    const p = S.st / 1.1; c.strokeStyle = GREEN; c.lineWidth = 3; c.globalAlpha = 1 - p;
+    c.beginPath(); c.ellipse(cx, y, 44 + p * 80, 8 + p * 16, 0, 0, TAU); c.stroke();
+  }
+  c.restore();
+}
+function vz(c, x, y, s) { c.beginPath(); c.moveTo(x - s, y - s); c.lineTo(x + s, y - s); c.lineTo(x - s, y + s); c.lineTo(x + s, y + s); c.stroke(); }
+function holoFX(c, S, col, R) {
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  if (S.state === 'idle') {
+    c.strokeStyle = col; c.lineWidth = 2;
+    for (let i = 0; i < 3; i++) { const p = (S.t * 0.4 + i / 3) % 1; c.globalAlpha = Math.sin(p * Math.PI) * 0.9; vz(c, S.cx + R * 0.75 + p * 26, S.cy - R * 0.7 - p * 44, 3 + p * 4); }
+  }
+  if (S.state === 'working') {
+    for (let i = 0; i < 3; i++) {
+      for (let tr = 0; tr < 7; tr++) {
+        const a = S.t * 2.2 + i * TAU / 3 - tr * 0.07;
+        let q = rotZ([Math.cos(a) * 1.45, 0, Math.sin(a) * 1.45], 0.38 + i * 0.25);
+        const p = proj(q, S, R);
+        c.globalAlpha = depthA(p[2]) * (1 - tr / 7); c.fillStyle = tr ? col : '#ffffff';
+        const s = (tr ? 2 : 3.2) * p[3]; c.fillRect(p[0] - s / 2, p[1] - s / 2, s, s);
+      }
+    }
+  }
+  if (S.state === 'alert') {
+    const pop = clamp(S.st / 0.25, 0, 1), sc = 0.6 + 0.4 * ease(pop) + 0.06 * Math.sin(S.t * 9);
+    const px = S.cx + R * 1.15, py = S.cy - R * 1.0;
+    const flick = Math.sin(S.t * 47) > 0.93 ? 0.35 : 1;
+    c.globalAlpha = 0.5 * flick; c.strokeStyle = AMB; c.lineWidth = 1; c.setLineDash([2, 3]);
+    c.beginPath(); c.moveTo(S.cx + R * 0.6, S.cy - R * 0.45); c.lineTo(px - 12 * sc, py + 14 * sc); c.stroke(); c.setLineDash([]);
+    c.translate(px, py); c.scale(sc, sc); c.globalAlpha = flick;
+    c.fillStyle = rgba(AMB, 0.18); c.beginPath(); c.roundRect(-17, -19, 34, 38, 8); c.fill();
+    c.lineWidth = 2; c.stroke();
+    c.fillStyle = AMB; c.beginPath(); c.roundRect(-3, -12, 6, 16, 3); c.fill(); c.beginPath(); c.arc(0, 11, 3.4, 0, TAU); c.fill();
+    c.globalAlpha = 0.25 * flick; for (let y = -17; y < 19; y += 3) c.fillRect(-17, y, 34, 1);
+  }
+  if (S.state === 'done') {
+    const T = S.st % 1.8;
+    for (let i = 0; i < 22; i++) {
+      const ang = -Math.PI / 2 + (hash(i) - 0.5) * 2.6, v = 70 + hash(i + 9) * 70;
+      const x = S.cx + Math.cos(ang) * v * T, y = S.cy - 10 + Math.sin(ang) * v * T + 110 * T * T;
+      c.globalAlpha = clamp(1.4 - T, 0, 1); c.fillStyle = [col, GREEN, '#ffffff'][i % 3];
+      const s = 2 + (i % 3); c.fillRect(x - s / 2, y - s / 2, s, s);
+    }
+  }
+  c.restore();
+}
+function scanSweep(c, S) {
+  c.save();
+  c.globalCompositeOperation = 'destination-out'; c.fillStyle = 'rgba(0,0,0,.28)';
+  for (let y = 0; y < 240; y += 3) c.fillRect(0, y, 240, 1);
+  c.globalCompositeOperation = 'source-atop'; c.fillStyle = 'rgba(255,255,255,.28)';
+  const y = (S.t * 70) % 300 - 30; c.fillRect(0, y, 240, 6);
+  c.restore();
+}
+function glitch(c, S) {
+  if (S.state !== 'alert' || Math.sin(S.t * 23) < 0.82) return;
+  const cv = c.canvas;
+  for (let i = 0; i < 3; i++) { const y = Math.floor(hash(Math.floor(S.t * 30) + i) * 200) + 20, h = 4 + i * 3, dx = (hash(i + Math.floor(S.t * 30)) - 0.5) * 14; c.drawImage(cv, 0, y, 240, h, dx, y, 240, h); }
+}
+
+/* ---------- geometry built once ---------- */
+const ICO = (() => {
+  const t = (1 + Math.sqrt(5)) / 2;
+  let v = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]];
+  let f = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  const norm = p => { const l = Math.hypot(...p); return p.map(x => x / l); };
+  v = v.map(norm);
+  const cache = {};
+  const mid = (a, b) => { const k = a < b ? a + '_' + b : b + '_' + a; if (cache[k] !== undefined) return cache[k]; v.push(norm(v[a].map((x, i) => (x + v[b][i]) / 2))); return cache[k] = v.length - 1; };
+  const f2 = [];
+  for (const [a, b, c2] of f) { const ab = mid(a, b), bc = mid(b, c2), ca = mid(c2, a); f2.push([a, ab, ca], [b, bc, ab], [c2, ca, bc], [ab, bc, ca]); }
+  const edges = new Set();
+  for (const [a, b, c2] of f2) for (const [x, y] of [[a, b], [b, c2], [c2, a]]) edges.add(x < y ? x + '_' + y : y + '_' + x);
+  return { v, f: f2, e: [...edges].map(s => s.split('_').map(Number)) };
+})();
+const FIB = (() => { const n = 420, out = [], ga = Math.PI * (3 - Math.sqrt(5)); for (let i = 0; i < n; i++) { const y = 1 - (i / (n - 1)) * 2, r = Math.sqrt(1 - y * y), th = ga * i; out.push([Math.cos(th) * r, y, Math.sin(th) * r]); } return out; })();
+
+/* ---------- the variations ---------- */
+const VARIANTS = [
+  {
+    id: 'prime', name: 'Prime', kind: 'the original, refined', tint: '#7CFFCB',
+    blurb: 'The Vec you picked, rebuilt properly: a true 3D lat-long globe, back lines fading into the glass, a projector with a light cone, scanlines and a glitch when he wants you.',
+    built: 'Globe of 14 rings, ~560 line segments', device: 'Drawn live in code. Comfortable at 30 fps.',
+    draw(c, S) {
+      const R = 56, T = S.tint;
+      projector(c, S, T, R);
+      strokeBins(c, latLongSegs(S, R, 7, [-1.1, -0.72, -0.36, 0, 0.36, 0.72, 1.1], 40), T, 1.3);
+      c.save(); c.strokeStyle = T; c.globalAlpha = 0.35; c.lineWidth = 1; c.beginPath(); c.arc(S.cx, S.cy, R * 1.02, 0, TAU); c.stroke(); c.restore();
+      face(c, S, { R, col: T, eyeLon: 0.36, eyeLat: 0.12, er: 7, eh: 10, mouthLat: -0.3 });
+      holoFX(c, S, T, R); scanSweep(c, S); glitch(c, S);
+    },
+  },
+  {
+    id: 'facet', name: 'Facet', kind: 'geodesic', tint: '#8FD8FF',
+    blurb: 'A faceted geodesic shell with glowing nodes at every joint. Facets light up while he thinks, the shell ripples when he needs you, and it bursts apart and snaps back when he\'s done.',
+    built: '80 triangles, 120 edges, 42 nodes', device: 'Drawn live in code. Comfortable at 30 fps.',
+    draw(c, S) {
+      const R = 58, T = S.tint;
+      projector(c, S, T, R);
+      const pts = ICO.v.map((v, i) => {
+        let r = 1;
+        if (S.state === 'alert') r += 0.06 * Math.sin(S.t * 9 + v[1] * 6);
+        if (S.state === 'done') r += 0.45 * Math.exp(-S.st * 3.2) * Math.sin(Math.min(S.st * 7, Math.PI)) * (0.5 + hash(i));
+        if (S.state === 'idle') r += 0.02 * Math.sin(S.t * 1.3);
+        let p = rotX(rotY(v.map(x => x * r), S.spin), 0.35);
+        return P(p, S, R);
+      });
+      if (S.state === 'working') {
+        c.save(); c.fillStyle = T;
+        for (let k = 0; k < 3; k++) {
+          const fi = Math.floor(hash(Math.floor(S.t * 5) * 3 + k) * ICO.f.length), [a, b, d] = ICO.f[fi];
+          const z = (pts[a][2] + pts[b][2] + pts[d][2]) / 3; if (z < 0) continue;
+          c.globalAlpha = 0.35 * depthA(z); c.beginPath(); c.moveTo(pts[a][0], pts[a][1]); c.lineTo(pts[b][0], pts[b][1]); c.lineTo(pts[d][0], pts[d][1]); c.closePath(); c.fill();
+        }
+        c.restore();
+      }
+      const segs = ICO.e.map(([a, b]) => [pts[a][0], pts[a][1], pts[b][0], pts[b][1], depthA((pts[a][2] + pts[b][2]) / 2)]);
+      strokeBins(c, segs, T, 1.3);
+      c.save(); c.fillStyle = '#ffffff';
+      for (const p of pts) { const a = depthA(p[2]); c.globalAlpha = a; const s = 1.2 + 2.2 * a; c.fillRect(p[0] - s / 2, p[1] - s / 2, s, s); }
+      c.restore();
+      face(c, S, { R, col: mix(T, '#ffffff', 0.25), eyeLon: 0.36, eyeLat: 0.12, er: 7, eh: 10, mouthLat: -0.3 });
+      holoFX(c, S, T, R);
+    },
+  },
+  {
+    id: 'swarm', name: 'Swarm', kind: 'point cloud', tint: '#C9A8FF', tint2: '#6FE7FF',
+    blurb: 'A globe made of 420 glowing particles. He slumps into a soft puddle when asleep, swirls while working, sends pulses through himself when he needs you, and explodes outward when he\'s done.',
+    built: '420 particles, colour fades top to bottom', device: 'Drawn live in code. Points are cheaper than lines.',
+    draw(c, S) {
+      const R = 58, T = S.tint, T2 = S.tint2 || mix(S.tint, '#ffffff', 0.45);
+      projector(c, S, T2, R);
+      const g = c.createRadialGradient(S.cx, S.cy, 0, S.cx, S.cy, R * 1.25);
+      g.addColorStop(0, rgba(T, 0.16)); g.addColorStop(1, rgba(T, 0)); c.fillStyle = g; c.fillRect(0, 0, 240, 240);
+      const wave = 1 - ((S.t * 1.4) % 1) * 2.4;
+      const cols = [T, mix(T, T2, 0.5), T2];
+      const bins = cols.map(() => [[], [], [], []]);
+      FIB.forEach((b, i) => {
+        let [x, y, z] = b, r = 1;
+        if (S.state === 'idle') { const br = 0.02 * Math.sin(S.t * 1.3); y = y * (0.8 + br) - 0.12; x *= 1.08; z *= 1.08; }
+        if (S.state === 'alert') r += 0.03 * Math.sin(S.t * 22 + i) + 0.13 * Math.exp(-((z - wave) ** 2) * 18);
+        if (S.state === 'done') r += 0.7 * Math.exp(-S.st * 2.6) * Math.abs(Math.sin(S.st * 6)) * (0.4 + hash(i));
+        let p = [x * r, y * r, z * r];
+        const tw = S.state === 'working' ? b[1] * Math.sin(S.t * 2) * 0.9 : 0;
+        p = rotY(p, S.spin + tw);
+        const q = P(p, S, R), a = depthA(q[2]);
+        const ci = b[1] > 0.33 ? 0 : b[1] > -0.33 ? 1 : 2;
+        bins[ci][Math.min(3, Math.floor(a * 4))].push(q);
+      });
+      c.save();
+      bins.forEach((byA, ci) => { c.fillStyle = cols[ci]; byA.forEach((list, ai) => { c.globalAlpha = (ai + 0.6) / 4; const s = 1.2 + ai * 0.7; for (const q of list) c.fillRect(q[0] - s / 2, q[1] - s / 2, s, s); }); });
+      c.restore();
+      face(c, S, { R, col: '#ffffff', eyeLon: 0.36, eyeLat: 0.12, er: 7, eh: 10, mouthLat: -0.3 });
+      holoFX(c, S, T, R);
+    },
+  },
+  {
+    id: 'gyro', name: 'Gyro', kind: 'core and rings', tint: '#7CFFCB',
+    blurb: 'A small globe-head inside three orbiting rings. The rings settle into a sleepy halo, spin like a gyroscope while he works, snap round to face you when he needs you, and twirl when he\'s done.',
+    built: 'Core globe plus 3 rings with beads', device: 'Drawn live in code. Comfortable at 30 fps.',
+    draw(c, S) {
+      const R = 52, T = S.tint, RC = mix(T, '#ffffff', 0.55), Rc = 0.62, d = S.data;
+      if (!d.rings) d.rings = [0, 1, 2].map(i => ({ ax: 1.2 + i, ay: i * 1.1 }));
+      const radii = [1.12, 1.32, 1.52];
+      d.rings.forEach((rg, i) => {
+        if (S.state === 'working') { rg.ax += S.dt * (1.7 + i * 0.8); rg.ay += S.dt * (0.6 + i * 0.35); }
+        else {
+          const tx = S.state === 'alert' ? 0 : Math.PI / 2, ty = S.state === 'done' ? rg.ay + S.dt * 4 : 0;
+          const near = (cur, tgt) => cur + (((tgt - cur + Math.PI / 2) % Math.PI + Math.PI) % Math.PI - Math.PI / 2) * Math.min(1, S.dt * 5);
+          rg.ax = near(rg.ax, tx + (S.state === 'idle' ? 0.12 * Math.sin(S.t * 0.8 + i) : 0));
+          rg.ay = S.state === 'done' ? ty : near(rg.ay, 0);
+        }
+      });
+      projector(c, S, T, R * Rc);
+      const back = [], front = [], beads = [];
+      d.rings.forEach((rg, i) => {
+        const rad = radii[i] * (S.state === 'alert' ? 1 + 0.05 * Math.sin(S.t * 8 - i) : 1), pts = [];
+        const xf = p => { p = rotX(p, rg.ax); p = rotY(p, rg.ay); return proj(rotX(p, S.pose.pitch * 0.4), S, R); };
+        for (let j = 0; j <= 56; j++) { const a = j / 56 * TAU; pts.push(xf([Math.cos(a) * rad, Math.sin(a) * rad, 0])); }
+        for (let j = 0; j < 56; j++) { const a = pts[j], b = pts[j + 1], z = (a[2] + b[2]) / 2; (z < 0 ? back : front).push([a[0], a[1], b[0], b[1], depthA(z / rad)]); }
+        const ba = S.t * (1.4 + i * 0.5) + i * 2; beads.push(xf([Math.cos(ba) * rad, Math.sin(ba) * rad, 0]).concat(rad));
+      });
+      const ringCol = S.state === 'alert' && Math.sin(S.t * 8) > 0 ? AMB : RC;
+      strokeBins(c, back, ringCol, 1.6);
+      const coreS = Object.assign({}, S, { sq: S.sq });
+      strokeBins(c, latLongSegs(coreS, R * Rc, 5, [-0.8, -0.4, 0, 0.4, 0.8], 32), T, 1.2);
+      face(c, S, { R: R * Rc, col: T, eyeLon: 0.38, eyeLat: 0.12, er: 9, eh: 12, mouthLat: -0.32 });
+      strokeBins(c, front, ringCol, 1.6);
+      c.save(); c.fillStyle = '#ffffff';
+      for (const b of beads) { c.globalAlpha = depthA(b[2] / b[4]); const s = 4 * b[3]; c.fillRect(b[0] - s / 2, b[1] - s / 2, s, s); }
+      c.restore();
+      holoFX(c, S, T, R * 0.9);
+    },
+  },
+  {
+    id: 'phosphor', name: 'Phosphor', kind: 'vector CRT', tint: '#6BFF8E', persist: true,
+    blurb: 'Drawn like an old vector arcade screen: stacked contour slices with glowing phosphor trails that smear when he moves. Ripples while working, cascades like a slinky when he\'s done.',
+    built: '13 contour slices, phosphor afterglow', device: 'Drawn live in code. Trails need one extra full-screen buffer.',
+    draw(c, S) {
+      const R = 58, T = S.tint;
+      projector(c, S, T, R);
+      const segs = [], core = [];
+      for (let j = 1; j <= 13; j++) {
+        const lat = -Math.PI / 2 + j * Math.PI / 14;
+        let y = Math.sin(lat), r = Math.cos(lat), dx = 0;
+        if (S.state === 'idle') { y = y * (0.8 + 0.03 * Math.sin(S.t * 1.3)) - 0.12; r *= 1.08; }
+        if (S.state === 'working') y += 0.06 * Math.sin(S.t * 6 - j * 0.7);
+        if (S.state === 'alert') dx = 0.035 * Math.sin(S.t * 40 + j * 1.7);
+        if (S.state === 'done') y += 0.16 * Math.max(0, Math.sin(S.st * 6 - j * 0.45)) * Math.exp(-S.st * 1.1);
+        const pts = [];
+        for (let k = 0; k <= 44; k++) { const ph = k / 44 * TAU + S.spin; pts.push(P([r * Math.cos(ph) + dx, y, r * Math.sin(ph)], S, R)); }
+        polySegs(pts, segs);
+      }
+      for (const s of segs) if (s[4] > 0.6) core.push(s);
+      strokeBins(c, segs, T, 1.5, 0.22);
+      strokeBins(c, core, '#E9FFF0', 0.8, 0);
+      face(c, S, { R, col: mix(T, '#ffffff', 0.4), eyeLon: 0.36, eyeLat: 0.12, er: 7, eh: 10, mouthLat: -0.3, outline: true });
+      holoFX(c, S, T, R);
+    },
+  },
+];
+
+/* ---------- behaviour: where he looks, how he moves, per moment ---------- */
+function poseTarget(state, t) {
+  if (state === 'idle') return { yaw: 0.05 * Math.sin(t * 0.4), pitch: 0.38 + 0.05 * Math.sin(t * 1.3), roll: 0.1 };
+  if (state === 'working') { const i = Math.floor(t / 0.75); return { yaw: (hash(i) - 0.5) * 0.95, pitch: 0.12 + (hash(i + 7) - 0.5) * 0.25, roll: 0 }; }
+  if (state === 'alert') return { yaw: 0, pitch: -0.16, roll: 0.09 * Math.sin(t * 3) };
+  return { yaw: 0, pitch: -0.06, roll: 0 };
+}
+function spinSpeed(state, st) {
+  return { idle: 0.18, working: 1.9, alert: 1.4 * Math.exp(-st * 5), done: 0.8 }[state];
+}
+
+/* ---------- page wiring ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('vec:' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('vec:' + k, JSON.stringify(v)); } catch {} },
+};
+let mode = 'cycle', tintMode = 'own';
+const picks = new Set(store.get('picks', []));
+const grid = document.getElementById('grid');
+const cards = VARIANTS.map(v => {
+  const el = document.createElement('article');
+  el.className = 'card';
+  el.style.setProperty('--glow', rgba(v.tint, 0.4));
+  el.innerHTML = `
+    <div class="stage"><canvas width="240" height="240" role="img" aria-label="Vec ${v.name}, ${v.kind}"></canvas><span class="chip"></span></div>
+    <div class="meta"><h2>${v.name}<small>${v.kind}</small></h2>
+      <button type="button" class="pick" id="pick-${v.id}" aria-pressed="false">Shortlist</button></div>
+    <p class="blurb">${v.blurb}</p>
+    <dl class="specs">
+      <div><dt>Built from</dt><dd>${v.built}</dd></div>
+      <div><dt>On device</dt><dd>${v.device}</dd></div>
+    </dl>`;
+  grid.appendChild(el);
+  const btn = el.querySelector('.pick');
+  btn.addEventListener('click', () => { picks.has(v.id) ? picks.delete(v.id) : picks.add(v.id); store.set('picks', [...picks]); syncPicks(); });
+  return { v, el, btn, ctx: el.querySelector('canvas').getContext('2d'), chip: el.querySelector('.chip'), data: { yaw: 0, pitch: 0, roll: 0, spin: 0 } };
+});
+function syncPicks() {
+  cards.forEach(({ v, el, btn }) => { const on = picks.has(v.id); el.classList.toggle('picked', on); btn.setAttribute('aria-pressed', String(on)); btn.textContent = on ? 'Shortlisted' : 'Shortlist'; });
+  const list = VARIANTS.filter(v => picks.has(v.id));
+  document.getElementById('pickList').innerHTML = list.length ? 'Shortlisted: ' + list.map(v => `<b>${v.name}</b> (${v.kind})`).join(', ') : 'Nothing shortlisted yet. Use <b>Shortlist</b> on any card.';
+}
+syncPicks();
+function bindSeg(id, attr, apply) {
+  const seg = document.getElementById(id);
+  seg.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); apply(b.dataset[attr]); });
+}
+bindSeg('stateSeg', 'state', v => { mode = v; });
+bindSeg('tintSeg', 'tint', v => { tintMode = v; cards.forEach(k => k.el.style.setProperty('--glow', rgba(v === 'own' ? k.v.tint : v, 0.4))); });
+bindSeg('viewSeg', 'view', v => document.body.classList.toggle('prism', v === 'prism'));
+bindSeg('sizeSeg', 'size', v => document.body.classList.toggle('actual', v === 'actual'));
+document.body.classList.add('prism');
+const notes = document.getElementById('notes');
+notes.value = store.get('notes', '');
+notes.addEventListener('input', () => store.set('notes', notes.value));
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const list = VARIANTS.filter(v => picks.has(v.id));
+  const tintName = { own: '', '#7CFFCB': 'Mint', '#8FD8FF': 'Ice', '#C9A8FF': 'Violet', '#FF9ED2': 'Rose' }[tintMode];
+  const text = ['Vec shortlist: ' + (list.length ? list.map(v => `${v.name} (${v.kind})`).join(', ') : 'none yet'), tintName ? 'Colour I was viewing: ' + tintName : '', notes.value.trim() ? 'Notes: ' + notes.value.trim() : ''].filter(Boolean).join('\n');
+  const status = document.getElementById('copyStatus'), fb = document.getElementById('copyFallback');
+  const fallback = () => { fb.hidden = false; fb.value = text; fb.focus(); fb.select(); status.textContent = 'Select-all and copy the text below.'; };
+  try { navigator.clipboard.writeText(text).then(() => { status.textContent = 'Copied. Paste it into your chat with Claude.'; fb.hidden = true; }, fallback); } catch { fallback(); }
+});
+
+/* ---------- animation loop ---------- */
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const CYCLE = 4.2;
+let lastNow = 0, lastDraw = 0, prevState = null, stateSince = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (reduced && now - lastDraw < 400) return;
+  const t = now / 1000, dt = clamp((now - (lastDraw || now)) / 1000, 0, 0.05);
+  lastDraw = now;
+  const state = mode === 'cycle' ? STATES[Math.floor(t / CYCLE) % 4] : mode;
+  if (state !== prevState) { prevState = state; stateSince = t; }
+  const st = t - stateSince;
+  const mood = { idle: 'sleep', working: 'look', alert: 'wide', done: 'happy' }[state];
+  const bp = t % 3.6, blink = (state === 'working' || state === 'alert') && bp < 0.14 ? 1 - Math.abs(bp - 0.07) / 0.07 : 0;
+  const bob = state === 'idle' ? Math.sin(t * 1.2) * 3 : state === 'working' ? Math.sin(t * 6) * 1 : state === 'alert' ? -Math.abs(Math.sin(t * 5.5)) * 10 : -Math.abs(Math.sin(t * 3.2)) * 6;
+  const sq = state === 'alert' ? 0.07 * (1 - Math.min(1, Math.abs(bob) / 3)) : state === 'idle' ? 0.015 * Math.sin(t * 1.3) : 0;
+  const flip = state === 'done' && st < 0.95 ? ease(st / 0.95) * TAU : 0;
+  for (const k of cards) {
+    const d = k.data, tgt = poseTarget(state, t), L = 1 - Math.exp(-dt * (state === 'working' ? 14 : 6));
+    d.yaw += (tgt.yaw - d.yaw) * L; d.pitch += (tgt.pitch - d.pitch) * L; d.roll += (tgt.roll - d.roll) * L;
+    d.spin += spinSpeed(state, st) * dt;
+    const tint = tintMode === 'own' ? k.v.tint : tintMode;
+    const S = { t, st, dt, state, mood, blink, bob, sq, cx: 120, cy: 108 + bob, spin: d.spin, pose: { yaw: d.yaw + flip, pitch: d.pitch, roll: d.roll }, tint, tint2: tintMode === 'own' ? k.v.tint2 : null, data: d };
+    const c = k.ctx;
+    c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+    c.fillStyle = k.v.persist ? 'rgba(0,0,0,.34)' : '#000'; c.fillRect(0, 0, 240, 240);
+    k.v.draw(c, S);
+    if (k.chip.dataset.s !== state) { k.chip.dataset.s = state; k.chip.textContent = STATE_LABEL[state]; k.chip.classList.toggle('alert', state === 'alert'); }
+  }
+}
+requestAnimationFrame(frame);
+})();
+</script>

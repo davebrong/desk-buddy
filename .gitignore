@@ -1,0 +1,12 @@
+# build output / environments
+firmware/.pio/
+tools/.venv/
+__pycache__/
+.pytest_cache/
+.DS_Store
+
+# regenerable from the .scad sources (openscad -D 'part="..."')
+enclosure/stl/
+
+# vendor's factory firmware dump: keep locally, never publish
+backups/
