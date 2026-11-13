@@ -46,7 +46,8 @@ class Clock:
 class BridgeTest(unittest.TestCase):
     def setUp(self):
         for f in os.listdir(HOME):
-            os.remove(os.path.join(HOME, f))
+            if f != "bridge.log":              # the bridge holds its log open (Windows can't delete it)
+                os.remove(os.path.join(HOME, f))
         self.clock = Clock(NOON)
         p = mock.patch.object(bridge.time, "time", self.clock)
         p.start(); self.addCleanup(p.stop)
@@ -362,7 +363,8 @@ class GagSoundTest(unittest.TestCase):
                 w.setnchannels(1); w.setsampwidth(2); w.setframerate(44100); w.writeframes(b"\0\0" * 44100)
         self.cfg = os.path.join(self.dir, "sounds.json")
         self.write({"enabled": True, "volume": 0.4})
-        self.patches = [mock.patch.object(bridge, "SOUNDS_DIR", self.dir), mock.patch.object(bridge, "SOUNDS_FILE", self.cfg)]
+        self.patches = [mock.patch.object(bridge, "SOUNDS_DIR", self.dir), mock.patch.object(bridge, "SOUNDS_FILE", self.cfg),
+                        mock.patch.object(bridge, "WINDOWS", False)]          # these check the afplay command line
         for p in self.patches: p.start()
         self.timers = []
         self.patches.append(mock.patch.object(bridge.threading, "Timer", side_effect=lambda d, fn, args: self.timers.append((d, fn, args)) or mock.Mock()))
@@ -722,6 +724,35 @@ class FocusAcrossAccounts(unittest.TestCase):
             self.assertEqual(self.f._front_account('"CFBundleIdentifier"="com.anthropic.claudefordesktop"\n"pid"=7'), "work")
             self.assertEqual(self.f._front_account('"CFBundleIdentifier"="com.anthropic.claudefordesktop"\n"pid"=8'), "personal")
             self.assertIsNone(self.f._front_account('"CFBundleIdentifier"="com.apple.Terminal"\n"pid"=9'))
+
+    def test_front_account_on_windows(self):
+        app = r'"exe"="C:\Users\me\AppData\Local\AnthropicClaude\app-1.0.0\claude.exe"' + '\n"pid"=7'
+        cli = r'"exe"="C:\Users\me\.local\bin\claude.exe"' + '\n"pid"=8'
+        with mock.patch.object(bridge, "account_of_pid", lambda pid: "personal"):
+            self.assertEqual(self.f._front_account(app), "personal")
+            self.assertIsNone(self.f._front_account(cli))
+            self.assertIsNone(self.f._front_account(r'"exe"="C:\Program Files\WindowsTerminal.exe"' + '\n"pid"=9'))
+        self.assertEqual(bridge.front_exe(r'"exe"="C:\x\Slack.exe"' + '\n"pid"=3'), "slack.exe")
+
+
+class WindowsBits(unittest.TestCase):
+    def test_account_from_windows_paths(self):
+        self.assertEqual(bridge.account_of_config(r"C:\Users\me\.claude-work\projects\x\abc.jsonl"), "work")
+        self.assertEqual(bridge.account_of_config(r"C:\Users\me\.claude\projects\x\abc.jsonl"), "personal")
+        self.assertEqual(bridge.account_of_data_dir("C:\\Users\\me\\AppData\\Roaming\\Claude-Work\\"), "work")
+
+    def test_scaled_wav(self):
+        import wave, struct
+        d = tempfile.mkdtemp(prefix="deskbuddy-vol-")
+        src = os.path.join(d, "a.wav")
+        with wave.open(src, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000); w.writeframes(struct.pack("<3h", 1000, -20000, 30000))
+        self.assertEqual(bridge.scaled_wav(src, 1.0), src)
+        out = bridge.scaled_wav(src, 0.5)
+        with wave.open(out) as w:
+            self.assertEqual(struct.unpack("<3h", w.readframes(3)), (500, -10000, 15000))
+        with wave.open(bridge.scaled_wav(src, 2.0)) as w:                 # clipped, not wrapped
+            self.assertEqual(struct.unpack("<3h", w.readframes(3)), (2000, -32768, 32767))
 
 
 if __name__ == "__main__":

@@ -18,6 +18,13 @@ ART = os.path.join(ROOT, "firmware", "data", "lump.bin")
 CONFIG = os.path.expanduser("~/.desk-buddy/config.json")
 
 
+def pio():
+    """PlatformIO: on the PATH, or in tools/.venv where tools/flash.ps1 installs it on Windows."""
+    import shutil
+    local = os.path.join(ROOT, "tools", ".venv", "Scripts", "pio.exe")
+    return shutil.which("pio") or (local if os.path.exists(local) else "pio")
+
+
 def resolve(host):
     # IPv4 only: a general lookup of a .local name waits 5 s for an IPv6 answer the board never gives
     return socket.getaddrinfo(host, 80, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
@@ -84,7 +91,7 @@ def main():
 
     if want_app and not a.no_build:
         print("building...", flush=True)
-        r = subprocess.run(["pio", "run"], cwd=os.path.join(ROOT, "firmware"), capture_output=True, text=True)
+        r = subprocess.run([pio(), "run"], cwd=os.path.join(ROOT, "firmware"), capture_output=True, text=True)
         if r.returncode:
             sys.exit(r.stdout[-3000:] + r.stderr[-2000:] + "\nbuild failed")
     for kind, path, want in (("app", APP, want_app), ("art", ART, want_art)):

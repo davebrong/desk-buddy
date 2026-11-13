@@ -3,6 +3,7 @@
 Run it yourself with the board plugged into the Mac by USB (data cable):
     ~/.desk-buddy/venv/bin/python tools/wifi_setup.py          # set up / change network
     ~/.desk-buddy/venv/bin/python tools/wifi_setup.py --forget # turn Wi-Fi off again
+On Windows: ~/.desk-buddy/venv/Scripts/python tools/wifi_setup.py
 
 It asks for the network name and password (the password isn't shown, logged or saved on the Mac:
 it goes straight over USB into the board's own flash), makes a pairing token so only your
@@ -18,13 +19,39 @@ HOME = os.path.expanduser("~/.desk-buddy")
 CONFIG = os.path.join(HOME, "config.json")
 BRIDGE = "com.deskbuddy.bridge"
 BRIDGE_PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{BRIDGE}.plist")
+WINDOWS = sys.platform == "win32"
+WIN_TASK = "DeskBuddyBridge"                 # tools/install_bridge.ps1
+USB_VIDS = {0x1A86, 0x303A}                  # WCH CH343, Espressif USB
+
+
+def usb_ports():
+    if WINDOWS:
+        from serial.tools import list_ports
+        return sorted(p.device for p in list_ports.comports() if p.vid in USB_VIDS)
+    return sorted(glob.glob("/dev/cu.usbmodem*"))
+
+
+def bridge(run):
+    """Pause (run=False) or restart the bridge, which holds the USB port."""
+    if WINDOWS:
+        subprocess.run(["schtasks", "/Run" if run else "/End", "/TN", WIN_TASK], capture_output=True)
+    elif run:
+        bridge(True)
+    else:
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{BRIDGE}"], capture_output=True)
 
 
 def posix_tz():
     """Your time zone as a POSIX rule (e.g. EST5EDT,M3.2.0,M11.1.0), from the footer of
-    /etc/localtime, which is what the ESP32's clock understands."""
+    /etc/localtime, which is what the ESP32's clock understands. Windows has no /etc/localtime:
+    there the zone's name comes from tzlocal and its TZif file from the tzdata package."""
     try:
-        data = open("/etc/localtime", "rb").read()
+        if WINDOWS:
+            import importlib.resources, tzlocal
+            name = tzlocal.get_localzone_name()
+            data = importlib.resources.files("tzdata.zoneinfo").joinpath(*name.split("/")).read_bytes()
+        else:
+            data = open("/etc/localtime", "rb").read()
         footer = data.rstrip(b"\n").rsplit(b"\n", 1)[-1].decode()
         return footer if re.fullmatch(r"[A-Za-z<>+\-0-9,./:]+", footer) else ""
     except Exception:
@@ -33,6 +60,10 @@ def posix_tz():
 
 def current_ssid():
     try:
+        if WINDOWS:
+            out = subprocess.run(["netsh", "wlan", "show", "interfaces"], capture_output=True, text=True, timeout=3).stdout
+            m = re.search(r"^\s*SSID\s*: (.+)$", out, re.M)
+            return m.group(1).strip() if m else ""
         out = subprocess.run(["ipconfig", "getsummary", "en0"], capture_output=True, text=True, timeout=3).stdout
         m = re.search(r"^\s*SSID : (.+)$", out, re.M)
         return m.group(1).strip() if m and "redacted" not in m.group(1) else ""
@@ -58,7 +89,7 @@ def read_lines(ser, until, secs):
 
 def main():
     forget = "--forget" in sys.argv
-    ports = sorted(glob.glob("/dev/cu.usbmodem*"))
+    ports = usb_ports()
     if not ports:
         sys.exit("Lump isn't plugged in by USB (needs a data cable).")
     cfg = {}
@@ -81,7 +112,7 @@ def main():
         line = f"w {ssid}\t{password}\t{token}\t{tz}"
 
     # the bridge holds the USB port: pause it while we talk to the board
-    subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{BRIDGE}"], capture_output=True)
+    bridge(False)
     time.sleep(1)
     try:
         ser = serial.Serial(); ser.port, ser.baudrate, ser.timeout = ports[0], 115200, 0.3
@@ -116,13 +147,13 @@ def main():
             time.sleep(1)
         ser.close()
         if status and "wifi=connected" in status:
-            print("\nLump is on Wi-Fi. Unplug him from the Mac and power him from any USB charger:")
+            print("\nLump is on Wi-Fi. Unplug him from the computer and power him from any USB charger:")
             print("the bridge will find him at lump.local within a few seconds.")
         else:
             print("\nHe saved the details but hasn't joined yet. Check the network name and password")
             print("(and that it's a 2.4 GHz network), then run this again.")
     finally:
-        subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", BRIDGE_PLIST], capture_output=True)
+        bridge(True)
 
 
 if __name__ == "__main__":
