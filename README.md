@@ -83,6 +83,28 @@ charger, such as a monitor's power-only port. Updates then go over the air:
 python3 tools/ota.py
 ```
 
+### On Windows
+
+Same steps, Windows tools. Needs Python 3.10+ from python.org; PlatformIO and esptool are
+installed for you. Run from the repo folder in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\flash.ps1 -Fast    # 1. flash (drop -Fast if it errors: paced, ~5 min)
+powershell -ExecutionPolicy Bypass -File tools\install_bridge.ps1 # 2. bridge as a logon scheduled task
+python tools\install_hooks.py                                     # 3. hooks + status line
+~\.desk-buddy\venv\Scripts\python tools\wifi_setup.py             # 4. optional Wi-Fi
+~\.desk-buddy\venv\Scripts\python tools\ota.py                    #    then updates over the air
+```
+
+- If the board doesn't show up as a COM port, install WCH's CH343 driver.
+- The hooks and status line are small Python scripts (`hook_relay.py`, `statusline.py`), so they
+  work whatever shell Claude Code uses. If you already have a status line, `install_hooks.py
+  --wrap-statusline` runs Lump's in its place and still prints yours; `--uninstall` puts yours back.
+- Sounds play through `winsound`. Focus (Claude app or Slack in front) uses the foreground window.
+- Not ported: the Chat/Cowork watcher (`tools/appwatch`, macOS accessibility) and the Mac menu-bar
+  Lump (`tools/lumpbar`). Claude Code sessions, usage colour, calendar, Slack, taps and sounds all work.
+- If `lump.local` doesn't resolve, put the board's IP in `~/.desk-buddy/config.json` as `lump_host`.
+
 ### Optional extras
 
 Put these in `~/.desk-buddy/config.json`. The bridge re-reads it, so no restart is needed.

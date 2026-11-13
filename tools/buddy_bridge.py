@@ -40,13 +40,16 @@ goes its own way after a minute and shows he's not connected. Session state is k
 Extras for debugging:  GET /status   POST /cmd  (body: a raw command such as "s done")
                        GET /sound    POST /sound (body: on | off | toggle | play <moment>)
                        (play tap_<gag>_<mood> plays a gag's sound, e.g. play tap_shock_idle)
-Install as a login item with tools/install_bridge.sh.
+Install as a login item with tools/install_bridge.sh (Mac) or tools/install_bridge.ps1 (Windows).
 """
 import glob, http.server, json, logging, logging.handlers, os, random, re, subprocess, sys, threading, time, wave
 import serial
 
 HTTP_PORT = 47823
-HOME = os.environ.get("DESKBUDDY_HOME") or os.path.expanduser("~/.desk-buddy")   # tests point this elsewhere
+WINDOWS = sys.platform == "win32"
+# USB IDs for the board's USB-serial: WCH (the CH343 on the prism board) and Espressif's own USB
+USB_VIDS = {0x1A86, 0x303A}
+HOME =os.environ.get("DESKBUDDY_HOME") or os.path.expanduser("~/.desk-buddy")   # tests point this elsewhere
 NIGHT_START, NIGHT_END = 0, 8           # local hours: night (deep sleep under the blanket) is midnight to 8am
 NIGHT_SETTLE = 5 * 60                   # after he was last up to something (or you were), regular sleep this long first
 
@@ -122,7 +125,9 @@ log.setLevel(logging.INFO)
 _h = logging.handlers.RotatingFileHandler(os.path.join(HOME, "bridge.log"), maxBytes=500_000, backupCount=2)
 _h.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
 log.addHandler(_h)
-if sys.stderr.isatty():          # under launchd stderr is bridge.out, which only needs crashes
+if sys.stderr is None:           # pythonw (the Windows login item) has no console: keep crashes somewhere
+    sys.stdout = sys.stderr = open(os.path.join(HOME, "bridge.out"), "a", buffering=1)
+elif sys.stderr.isatty():        # under launchd stderr is bridge.out, which only needs crashes
     log.addHandler(logging.StreamHandler())
 
 
@@ -153,6 +158,9 @@ class Device:
 
     @staticmethod
     def usb_ports():
+        if WINDOWS:                    # COM ports have no telling names: pick the board's by USB vendor
+            from serial.tools import list_ports
+            return sorted(p.device for p in list_ports.comports() if p.vid in USB_VIDS)
         return sorted(glob.glob("/dev/cu.usbmodem*"))
 
     def _targets(self):
@@ -321,23 +329,70 @@ class Calendar:
 # CLAUDE_CONFIG_DIR=~/.claude-<name>. Personal is the plain default everywhere in the bridge; another
 # account's Chat/Cowork sessions are "app:<account>:<name>" and its usage keys "<account>:five_hour".
 PERSONAL = "personal"
-APP_SUPPORT = os.path.expanduser("~/Library/Application Support")
+# where the Claude app keeps its data folders (Claude/, Claude-Work/ ...): %APPDATA% on Windows
+APP_SUPPORT = os.environ.get("APPDATA", "") if WINDOWS else os.path.expanduser("~/Library/Application Support")
 
 
 def account_of_config(path):
     """The account behind a Claude Code path, e.g. a hook's transcript_path (~/.claude-work/... -> work)."""
-    m = re.search(r"/\.claude-([^/]+)/", path or "")
+    m = re.search(r"[\\/]\.claude-([^\\/]+)[\\/]", path or "")
     return m.group(1).lower() if m else PERSONAL
 
 
 def account_of_data_dir(path):
     """The account behind a Claude app data folder (.../Application Support/Claude-Work -> work)."""
-    name = os.path.basename((path or "").rstrip("/"))
+    name = re.split(r"[\\/]", (path or "").rstrip("/\\"))[-1]
     return name[len("Claude-"):].lower() if name.startswith("Claude-") else PERSONAL
+
+
+def front_app():
+    """The app in front, as text _front_account and slack_in_front can read: lsappinfo's output on a
+    Mac; on Windows the same shape, built from the foreground window's process ("exe"="...", "pid"=n)."""
+    if not WINDOWS:
+        asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=2).stdout.strip()
+        return subprocess.run(["lsappinfo", "info", "-only", "bundleid", "-only", "pid", asn],
+                              capture_output=True, text=True, timeout=2).stdout
+    import ctypes
+    from ctypes import wintypes
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    pid = wintypes.DWORD()
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd or not user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid)):
+        return ""
+    exe = ""
+    h = kernel32.OpenProcess(0x1000, False, pid.value)          # PROCESS_QUERY_LIMITED_INFORMATION
+    if h:
+        buf, n = ctypes.create_unicode_buffer(1024), wintypes.DWORD(1024)
+        if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+            exe = buf.value
+        kernel32.CloseHandle(h)
+    return f'"exe"="{exe}"\n"pid"={pid.value}'
+
+
+def front_exe(info):
+    """The lower-case file name of the front app's program (Windows), or "" (Mac / unknown)."""
+    m = re.search(r'"exe"="([^"]*)"', info or "")
+    return re.split(r"[\\/]", m.group(1))[-1].lower() if m else ""
+
+
+def is_claude_app(info):
+    """Is the app in front the Claude desktop app? (On Windows the Claude Code CLI is also claude.exe,
+    but it lives in ~/.local/bin and never owns a window: the terminal does.)"""
+    if "com.anthropic.claudefordesktop" in info:
+        return True
+    return front_exe(info) == "claude.exe" and not re.search(r"[\\/]\.local[\\/]bin[\\/]", info, re.I)
 
 
 def account_of_pid(pid):
     """Which account a running copy of the Claude app belongs to (from its --user-data-dir)."""
+    if WINDOWS:
+        return PERSONAL                # Claude Switcher (several accounts at once) is Mac-only
     try:
         cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=2).stdout
     except Exception:
@@ -358,7 +413,7 @@ class Focus:
     which copy it came from (its file is in that copy's data folder); "null" (no Code session
     showing) doesn't, so it's put down to the copy in front, or the one that was in front last."""
 
-    LOGS = os.path.expanduser("~/Library/Logs/Claude")
+    LOGS = os.path.join(APP_SUPPORT, "Claude", "logs") if WINDOWS else os.path.expanduser("~/Library/Logs/Claude")
     SUPPORT = APP_SUPPORT                 # Claude/ (personal), Claude-Work/ ... each with claude-code-sessions/
     FOCUS_RE = re.compile(r"setFocusedSession: sessionId=(local_[0-9a-f-]+|null)")
 
@@ -402,8 +457,8 @@ class Focus:
             self.last_account = account
 
     def _front_account(self, info):
-        """From `lsappinfo info -only bundleid -only pid` output: the Claude copy in front, or None."""
-        if "com.anthropic.claudefordesktop" not in info:
+        """From front_app() (`lsappinfo info -only bundleid -only pid` output): the Claude copy in front, or None."""
+        if not is_claude_app(info):
             return None
         m = re.search(r'"pid"=(\d+)', info)
         if not m:
@@ -434,20 +489,73 @@ class Focus:
             if hits: self._apply(hits[-1])
 
     def _run(self):
-        import subprocess
         while True:
             try:
-                info = subprocess.run(["lsappinfo", "info", "-only", "bundleid", "-only", "pid", subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()],
-                                      capture_output=True, text=True, timeout=2).stdout
-                self.set_front(self._front_account(info))
+                self.set_front(self._front_account(front_app()))
                 self._poll_log()
             except Exception as e:
                 log.info("focus check failed: %s", e)
             time.sleep(1.5)
 
 
+def scaled_wav(path, volume):
+    """A copy of a 16-bit WAV at `volume` (cached next to the sounds), for players with no volume
+    setting of their own. Anything else, or volume 1, plays as it is."""
+    if abs(volume - 1.0) < 0.01:
+        return path
+    import array
+    out = os.path.join(os.path.dirname(path), ".volume", f"{os.path.basename(path)[:-4]}_{round(volume * 100)}.wav")
+    try:
+        if os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(path):
+            return out
+        with wave.open(path) as w:
+            if w.getsampwidth() != 2:
+                return path
+            params, a = w.getparams(), array.array("h", w.readframes(w.getnframes()))
+        if sys.byteorder == "big": a.byteswap()
+        a = array.array("h", (max(-32768, min(32767, round(s * volume))) for s in a))
+        if sys.byteorder == "big": a.byteswap()
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with wave.open(out + ".tmp", "wb") as w:
+            w.setparams(params); w.writeframes(a.tobytes())
+        os.replace(out + ".tmp", out)
+        return out
+    except Exception as e:
+        log.info("can't set the volume of %s: %s", path, e)
+        return path
+
+
+class WinSound:
+    """afplay's stand-in on Windows, shaped like the Popen it replaces (poll / terminate): winsound
+    plays one WAV at a time in the background, which is all Lump needs (one voice at a time)."""
+
+    def __init__(self, path, volume):
+        import winsound
+        path = scaled_wav(path, float(volume))
+        try:
+            with wave.open(path) as w:
+                self.until = time.time() + w.getnframes() / w.getframerate()
+        except Exception:
+            self.until = time.time() + 5
+        winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+
+    def poll(self):
+        return None if time.time() < self.until else 0
+
+    def terminate(self):
+        import winsound
+        winsound.PlaySound(None, 0)
+        self.until = 0
+
+
+def start_player(path, volume):
+    if WINDOWS:
+        return WinSound(path, volume)
+    return subprocess.Popen(["afplay", "-v", str(volume), path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 class Sounds:
-    """Plays Lump's voice through afplay. Settings are re-read whenever sounds.json changes, so
+    """Plays Lump's voice through afplay (WinSound on Windows). Settings are re-read whenever sounds.json changes, so
     flipping "enabled" (Claude Switcher, POST /sound, or by hand) takes effect immediately.
       {"enabled": true, "volume": 1.0, "quiet_at_night": true,
        "moments": {"needs_you": {"on": true, "pick": ["a", "c"]}, ...}}
@@ -509,8 +617,7 @@ class Sounds:
             if self.proc and self.proc.poll() is None:
                 self.proc.terminate()                         # one voice at a time
             try:
-                self.proc = subprocess.Popen(["afplay", "-v", str(cfg.get("volume", 1.0)), path],
-                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.proc = start_player(path, cfg.get("volume", 1.0))
             except Exception as e:
                 log.info("afplay failed: %s", e); return False
             self.last_any = self.last_at[moment] = now
@@ -552,7 +659,7 @@ class Sounds:
             if self.proc and self.proc.poll() is None:
                 self.proc.terminate()                         # one voice at a time
             try:
-                self.proc = subprocess.Popen(["afplay", "-v", str(volume), path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.proc = start_player(path, volume)
             except Exception as e:
                 log.info("afplay failed: %s", e); return
             self.last_any = time.time()
@@ -1318,9 +1425,8 @@ class SlackWatch:
         """Is Slack the app you're using right now? (Then a plane is just noise, and a VIP message you're
         reading as it lands shouldn't get the whole letter routine.)"""
         try:
-            asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=2).stdout.strip()
-            out = subprocess.run(["lsappinfo", "info", "-only", "bundleID", asn], capture_output=True, text=True, timeout=2).stdout
-            return "com.tinyspeck.slackmacgap" in out
+            out = front_app()
+            return "com.tinyspeck.slackmacgap" in out or front_exe(out) == "slack.exe"
         except Exception:
             return False
 
@@ -1454,7 +1560,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reply(204)
             try: buddy.app.snapshot(json.loads(body or b"{}"))
             except Exception as e: log.info("bad app snapshot: %s", e)
-        elif self.path == "/usage":               # from tools/statusline.sh (status line JSON)
+        elif self.path == "/usage":               # from tools/statusline.sh / statusline.py (status line JSON)
             self._reply(204)
             try:
                 p = json.loads(body or b"{}") or {}
